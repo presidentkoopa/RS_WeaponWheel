@@ -2885,8 +2885,21 @@ class wr_Rig : EventHandler
 	//                     when you reach for its card is worse than no prop.
 	//   NOBLOCKMAP     -- never enters the blockmap, so nothing can collide with
 	//                     it or even test against it.
-	//   NOINTERACTION  -- no thinking, no gravity, no movement.
+	//   NOGRAVITY      -- it hangs where layout() puts it.
 	//   NOTONAUTOMAP   -- eight guns should not appear on the map.
+	//
+	// NOT +NOINTERACTION, and that was a bug. It stops the actor THINKING, and a
+	// weapon set is entitled to make its pickup appearance a decision rather
+	// than a sprite. VanillaVRPlus does exactly that:
+	//
+	//     Spawn:
+	//         TNT1 A 0 A_JumpIf(GetCVAR("evw_pickupmodel")==1, "Spawn.Model")
+	//         BFUG A 1
+	//
+	// A frozen actor never runs that jump, so it sat on a zero-duration TNT1
+	// forever and drew nothing at all. Letting it tick is also just the honest
+	// general answer: whatever a weapon set does for its own world pickup is
+	// what its card should show, and that is a state machine, not a lookup.
 	//
 	// Degrades honestly: a weapon with no MODELDEF entry shows its pickup
 	// SPRITE in the world instead, which still has depth and still beats a flat
@@ -2905,11 +2918,12 @@ class wr_Rig : EventHandler
 
 			a.bSpecial      = false;
 			a.bNoBlockmap   = true;
-			a.bNoInteraction = true;
 			a.bNoGravity    = true;
 			a.bNoTonAutomap = true;
 			a.bThruActors   = true;
 			a.bCountItem    = false;
+			a.bNoTrigger    = true;
+			a.Vel           = (0, 0, 0);
 
 			a.Scale = (sc, sc);
 			a.SetStateLabel('Spawn');
