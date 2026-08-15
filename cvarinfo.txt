@@ -49,9 +49,6 @@ user float wr_pop      = 1.5;
 // Hovering a card resets it.
 user int   wr_locktics = 140;
 
-// How much the held weapon shrinks while the rig is open. 1 leaves it alone.
-user float wr_weaponshrink = 0.5;
-
 // Master size. Grows distance, card size and reach together, so "make it
 // bigger" stays one thought instead of four sliders.
 user float wr_scale    = 1.0;

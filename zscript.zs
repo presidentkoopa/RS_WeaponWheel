@@ -143,8 +143,6 @@ class wr_Rig : EventHandler
 	bool mHavePoke;
 	int  mLockTics;
 	int  mCentreId, mCentreIcon, mCentreLabel;
-	Vector2 mSavedScale;
-	bool    mHaveSavedScale;
 	bool    mTouching;            // hand is physically inside a card
 	bool    mBtOn;                // we are the ones holding bullet time on
 	int     mBtSavedUnlimited;    // their bt_adrenaline_unlimited, to put back
@@ -242,7 +240,6 @@ class wr_Rig : EventHandler
 		mOpenTics  = 0;
 		mLockTics  = int(cv("wr_locktics", 140));
 
-		shrinkHeldWeapon(pmo, cv("wr_weaponshrink", 0.5));
 
 		// Claim the sticks. Snap turn and stick movement are decided in the VR
 		// input path before any script sees a button, so without this the same
@@ -312,7 +309,6 @@ class wr_Rig : EventHandler
 
 			// The playsim half of the close happens now regardless.
 			let pmoNow = players[consoleplayer].mo;
-			if (pmoNow != null) restoreHeldWeapon(pmoNow);
 			engineLaser(false);
 			level.SuppressVRInput(false);
 			bulletTime(false);
@@ -378,7 +374,6 @@ class wr_Rig : EventHandler
 		mCentreGroup = 0;
 
 		let pmo = players[consoleplayer].mo;
-		if (pmo != null) restoreHeldWeapon(pmo);
 
 		engineLaser(false);
 		level.SuppressVRInput(false);
@@ -407,74 +402,22 @@ class wr_Rig : EventHandler
 		mDwellTics = 0;
 	}
 
-	// The weapon in the rig hand shrinks while the rig is up.
+	// THE RIG NO LONGER TOUCHES THE HELD WEAPON AT ALL.
 	//
-	// It is not decoration: that hand is about to be used as a cursor, and a
-	// full-size gun in it is the thing you are trying to see past. Shrinking it
-	// also marks the mode -- the hand visibly stops being a weapon and starts
-	// being a pointer, without a word of UI saying so.
+	// It used to shrink it to half while the ring was up, to get the gun out of
+	// the way of the hand being used as a cursor and to mark the mode. Neither
+	// is needed: the ring floats a metre out in front, so the gun is not in the
+	// way of anything, and the ring itself is a perfectly clear statement that
+	// the rig is open.
 	//
-	// The original scale is saved rather than assumed, because a mod may already
-	// have scaled its psprites and 1.0 is not a safe thing to restore to.
-	private void shrinkHeldWeapon(PlayerPawn pmo, double factor)
-	{
-		// NEVER CAPTURE A SCALE WE ALREADY SHRANK.
-		//
-		// The saved value is the one true record of how big the weapon is meant
-		// to be; overwrite it while the shrink is applied and the original is
-		// gone for good. Any path that reaches here twice without a restore in
-		// between would compound, which is exactly how this went half, quarter,
-		// eighth. The commit path was the one that did it, and it is fixed at
-		// source -- this is the guard that stops the next one being a bug.
-		if (mHaveSavedScale) return;
-
-		mSavedScale = (0, 0);
-
-		let psp = pmo.player.GetPSprite(mRigHand == 1 ? PSP_OFFHANDWEAPON : PSP_WEAPON);
-		if (psp == null) return;
-
-		mSavedScale = psp.scale;
-		mHaveSavedScale = true;
-
-		psp.scale = psp.scale * factor;
-
-		// THE GUN USED TO BECOME A FIST HERE. It does not any more.
-		//
-		// The swap worked by pointing the psprite's Caller, sprite and frame at
-		// a carrier weapon that owned a hand model -- Caller because a HUD model
-		// is looked up as FindModelFrame(psp->Caller, sprite, frame), so swapping
-		// the sprite alone leaves a model-using weapon showing its own model.
-		//
-		// Shrinking already does the job it was there for: it gets the gun out
-		// of the way and it marks the mode, so the hand visibly stops being a
-		// weapon and starts being a pointer without a word of UI saying so. The
-		// fist was a second answer to a question already answered, and it cost a
-		// carrier class, a model, a skin, a MODELDEF and two cvars.
-		holdWeaponShrink(pmo);
-	}
-
-	// Re-asserts the shrink over whatever the weapon's state machine just wrote.
-	// Has to happen AFTER the playsim has ticked the psprite, which is what
-	// WorldTick is -- anywhere earlier and it is overwritten the same tic.
-	private void holdWeaponShrink(PlayerPawn pmo)
-	{
-		if (!mHaveSavedScale) return;
-
-		let psp = pmo.player.GetPSprite(mRigHand == 1 ? PSP_OFFHANDWEAPON : PSP_WEAPON);
-		if (psp == null) return;
-
-		psp.scale = mSavedScale * cv("wr_weaponshrink", 0.5);
-	}
-
-	private void restoreHeldWeapon(PlayerPawn pmo)
-	{
-		if (!mHaveSavedScale) return;
-
-		let psp = pmo.player.GetPSprite(mRigHand == 1 ? PSP_OFFHANDWEAPON : PSP_WEAPON);
-		if (psp != null) psp.scale = mSavedScale;
-
-		mHaveSavedScale = false;
-	}
+	// It also carried the worst bug in the mod. psp.scale belongs to the
+	// psprite LAYER, and SetPsprite reuses that layer rather than building a
+	// new one, so a scale applied by the rig survived the weapon changing
+	// underneath it -- and every commit compounded it. Half, quarter, eighth.
+	//
+	// Gone with it: mSavedScale, mHaveSavedScale, the capture guard, the
+	// per-tic re-assert, the restore on all three close paths, and
+	// wr_weaponshrink. Nothing in the rig writes to a psprite any more.
 
 	// Nothing else clears the suppression flag, and a stuck one is a player who
 	// cannot turn with nothing to blame -- so it is released on every way out of
@@ -1899,7 +1842,6 @@ class wr_Rig : EventHandler
 		//
 		// The design said so from the start and the call was never wired in,
 		// which is why the hand has never once been visible.
-		holdWeaponShrink(pmo);
 
 		layout(pmo);
 
@@ -2470,19 +2412,6 @@ class wr_Rig : EventHandler
 
 		let weap = Weapon(pmo.FindInventory(want));
 		if (weap == null) { closeRig(); return; }
-
-		// PUT THE SCALE BACK BEFORE ANYTHING MOVES.
-		//
-		// SetPsprite REUSES the DPSprite already on that layer -- it sets a new
-		// state on it, it does not build a new one -- so psp.scale survives the
-		// weapon changing underneath it. Equipping while the rig still had the
-		// hand shrunk therefore left the layer at half size with nothing left
-		// holding a record of the original, and the next open captured THAT as
-		// its "original". Half, then a quarter, then an eighth, once per use.
-		//
-		// Here rather than inside equipInstantly because a swap calls that twice,
-		// for two different hands, and only the rig hand was ever shrunk.
-		restoreHeldWeapon(pmo);
 
 		// PICKING THE GUN YOUR OTHER HAND IS ALREADY HOLDING.
 		//

@@ -19,7 +19,6 @@ OptionMenu wr_Options
 	StaticText "Behaviour", gold
 	Option "Open at level start",       "wr_autoopen",     "OnOff"
 	Slider "Seconds before it folds",   "wr_locktics",     35, 700, 35, 0
-	Slider "Held weapon shrinks to",    "wr_weaponshrink", 0.2, 1.0, 0.05, 2
 
 	StaticText ""
 	StaticText "Size", gold
