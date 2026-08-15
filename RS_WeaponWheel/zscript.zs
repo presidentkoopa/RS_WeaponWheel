@@ -3796,9 +3796,16 @@ class wr_Rig : EventHandler
 	const LABEL_HEIGHT_FRAC = 0.22;
 
 	// And how much of the card's HEIGHT the whole name may occupy once wrapped.
-	// Two lines at the full per-line size is taller than the space between the
-	// artwork and the bezel, so this is what they get shrunk to fit.
-	const LABEL_BLOCK_FRAC  = 0.34;
+	//
+	// This was 0.34, which is roughly ONE line's worth of block -- so two lines
+	// were squeezed to about two thirds size and a wrapped name ended up
+	// markedly smaller than an unwrapped one on the card beside it. The point of
+	// wrapping was to STOP long names being small.
+	//
+	// Two lines should be slightly smaller per line than one, because there are
+	// two of them; they should not be half. 0.46 leaves them within about ten
+	// percent of a single-line name.
+	const LABEL_BLOCK_FRAC  = 0.46;
 
 	// A card with nothing left in it. Dark red rather than grey: grey reads as
 	// disabled, and this weapon is not disabled -- you can absolutely select it,
@@ -3842,7 +3849,7 @@ class wr_Rig : EventHandler
 	// is the largest single thing on the card because the picture is what you
 	// recognise a weapon by -- the name is confirmation, not identification.
 	const ICON_BOX_H  = 40.0;
-	const ICON_TOP    = 20.0;
+	const ICON_TOP    = 15.0;
 	// CANVAS LAYOUT, top to bottom, and it has to dodge the billboards.
 	//
 	// The name and the segment readout are drawn as separate field billboards
@@ -3859,7 +3866,10 @@ class wr_Rig : EventHandler
 	// Where the label and segment land in canvas pixels, from their billboard
 	// fractions. Kept as constants so the dim band below tracks them instead of
 	// being a number tuned by eye.
-	const READOUT_TOP = 56;
+	// The dim band has to start high enough to sit behind a TWO-LINE name, not
+	// just a one-line one -- otherwise the top line of a wrapped name lands on
+	// undimmed artwork and loses its contrast exactly where it got bigger.
+	const READOUT_TOP = 44;
 
 	// At or under this many rounds, one pip means one SHOT. Above it, ten pips
 	// mean tenths -- forty countable rectangles is just a worse bar.
