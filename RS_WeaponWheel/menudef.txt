@@ -83,6 +83,9 @@ OptionMenu wr_Options
 	Slider "Room glow ripple",          "wr_wave",         0.0, 3.0, 0.1, 1
 	Submenu "Fine tuning...",           wr_RoomDetail
 
+	// On: one card per slot, others fan out on dwell -- bearings stay learnable.
+	// Off: every weapon on the ring, which grows to fit. One reach, no dwell.
+	Option "Fan out crowded slots",     "wr_subcards",     "OnOff"
 	Slider "Unhovered cards fade to",   "wr_dim",          0.05, 1.0, 0.05, 2
 	Option "Mark weapons you hold",     "wr_marker",       "OnOff"
 	Option "Ammo readout",              "wr_readout",     "wr_Readouts"

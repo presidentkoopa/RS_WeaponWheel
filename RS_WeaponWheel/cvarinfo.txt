@@ -257,3 +257,12 @@ user bool  wr_marker = true;
 //   0 LED segment, 1 LCD (punched out of a lit plate), 2 lozenge badge
 // Pick by which reads better against the room, not which is more correct.
 user int   wr_readout = 0;
+
+// On: a slot shows its first weapon and the rest fan out of it on dwell. The
+// ring stays one card per slot, so slot 4 is in the same direction whether you
+// own one weapon in it or five -- which is what makes bearings learnable.
+//
+// Off: every weapon gets its own card and the ring grows. One reach instead of
+// a dwell and a reach, at the cost of the fixed bearing: picking up a second
+// plasma rifle moves everything after it round the ring.
+user bool wr_subcards = true;

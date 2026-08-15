@@ -620,7 +620,25 @@ class wr_Rig : EventHandler
 
 				mTypes.Push(type);
 				mCardSlots.Push(slot);
-				break;		// the slot's face; the rest becomes subcards
+
+				// FANS, OR EVERYTHING ON THE RING.
+				//
+				// With fans on, a slot puts its FIRST admissible weapon on the
+				// ring and the rest unfold out of it on dwell. That keeps the
+				// ring at one card per slot, which is what makes its bearings
+				// learnable by feel -- slot 4 is in the same direction whether
+				// you own one weapon in it or five.
+				//
+				// With fans off, every weapon gets its own card and the ring
+				// simply grows. It can afford to: the radius already scales with
+				// the count so the chord between neighbours stays above a card
+				// width, and nothing about the layout assumes eight. What you
+				// give up is the fixed bearing -- picking up a second plasma
+				// rifle now moves everything after it round the ring.
+				//
+				// Worth having both. One is learnable, the other is one reach
+				// instead of a dwell and a reach.
+				if (cv("wr_subcards", 1.0) > 0.0) break;
 			}
 		}
 	}
@@ -2885,7 +2903,10 @@ class wr_Rig : EventHandler
 			++mHoverTics;
 			++mDwellTics;
 
-			if (mDwellTics == DWELL_TO_EXPAND && !belongsToExpansion(hit))
+			// Nothing to unfold when every weapon already has its own card --
+			// the fan would be a duplicate of cards already on the ring.
+			if (mDwellTics == DWELL_TO_EXPAND && !belongsToExpansion(hit)
+			    && cv("wr_subcards", 1.0) > 0.0)
 			{
 				let pmo = players[consoleplayer].mo;
 				if (pmo != null)
