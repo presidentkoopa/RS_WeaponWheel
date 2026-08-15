@@ -77,6 +77,7 @@ class wr_Rig : EventHandler
 	Array<double> mIconW;
 	Array<double> mIconH;
 	Array<double> mLabelH;        // measured so the name fits its card
+	Array<double> mAmmoW;         // bezel width, from what the readout says
 
 	int mOpenTics;                // drives the grow-in
 	double mCentreIconW, mCentreIconH;
@@ -472,6 +473,7 @@ class wr_Rig : EventHandler
 		mIconW.Clear();
 		mIconH.Clear();
 		mLabelH.Clear();
+		mAmmoW.Clear();
 		mTypes.Clear();
 		mCardSlots.Clear();
 		mTouching  = false;
@@ -760,11 +762,14 @@ class wr_Rig : EventHandler
 			int said = 0;
 			if (cv("wr_ammo", 1.0) > 0.0 && srounds >= 0)
 			{
+				// Same payload and same text rule as a ring card. A subcard is a
+				// weapon like any other and there is no reason for its readout
+				// to be a different thing.
 				said = level.AddBillboardPersistent(
 					(0, 0, 0), 3.5, 2.5, 0, 0,
-					LevelLocals.BBF_FIXED, LevelLocals.BB_SEGMENT, 0,
+					LevelLocals.BBF_FIXED, readoutKind(), srounds,
 					srounds > 0 ? COLOR_AMMO : COLOR_AMMO_DRY,
-					LevelLocals.BBFL_NOHIT, 0, String.Format("%d", srounds));
+					LevelLocals.BBFL_NOHIT, 0, ammoText(held, srounds));
 				level.SetBillboardGroup(said, mFanGroup);
 			}
 			mSubAmmos.Push(said);
@@ -1125,6 +1130,55 @@ class wr_Rig : EventHandler
 		level.SetBillboardGroup(mCentreLabel, mCentreGroup);
 	}
 
+	// THE SECONDARY PILE, when there is a separate one.
+	//
+	// Every reading in this mod went through Ammo1, so a weapon whose alt fire
+	// draws from its own reserve showed nothing about it -- you could take a
+	// grenade launcher with a full primary and no grenades and the ring would
+	// have said it was fine.
+	//
+	// Only when the two are DIFFERENT ACTORS. A weapon that spends the same pool
+	// faster on alt fire has Ammo2 pointing at the same Ammo instance as Ammo1,
+	// and printing that number twice would be a readout that says nothing and
+	// costs a row.
+	private static bool hasSecondAmmo(Weapon w)
+	{
+		return w != null && w.Ammo2 != null && w.Ammo2 != w.Ammo1;
+	}
+
+	// What the bezel reads. "24" normally, "24|3" when alt fire has its own
+	// reserve.
+	//
+	// A separator rather than a second billboard: the readout is already a
+	// bordered plate the width of half a card, and hanging another one under it
+	// would cost a row the card has not got. The bar is one glyph in the
+	// 16-segment alphabet, so it costs nothing to draw.
+	//
+	// BB_WG13 is the exception and cannot show this -- it takes a NUMBER in
+	// `data`, not text, so it can only ever report the primary. Documented
+	// rather than worked around; picking the lozenge is picking that trade.
+	private static string ammoText(Weapon w, int rounds)
+	{
+		int alt = ammoLeft2(w);
+		if (alt < 0) return String.Format("%d", rounds);
+		return String.Format("%d|%d", rounds, alt);
+	}
+
+	private static int ammoLeft2(Weapon w)
+	{
+		if (!hasSecondAmmo(w)) return -1;
+		return w.Ammo2.Amount;
+	}
+
+	private static double ammoFrac2(Weapon w)
+	{
+		if (!hasSecondAmmo(w)) return -1.0;
+
+		int cap = w.Ammo2.MaxAmount;
+		if (cap <= 0) return -1.0;
+		return clamp(double(w.Ammo2.Amount) / cap, 0.0, 1.0);
+	}
+
 	// How many rounds this weapon can fire right now, or -1 for one that does not
 	// use ammo at all.
 	//
@@ -1306,6 +1360,48 @@ class wr_Rig : EventHandler
 		c.Dim(col, amt, x, fy(y + h), w, h);
 	}
 
+	// One row of pips. Split out because there are two of them now -- primary
+	// and, when alt fire has its own reserve, secondary -- and they differ only
+	// by which numbers and which colour.
+	//
+	// A count of PIP_LITERAL_MAX or fewer gets one pip per ROUND, which is the
+	// reading you actually want with four shells left. Above that it falls back
+	// to tenths, because forty countable rectangles is a worse bar than a bar.
+	private void pipRow(Canvas c, int top, int rounds, double frac, int cap, color tint)
+	{
+		if (frac < 0.0) return;
+
+		int lit, total;
+		if (rounds >= 0 && rounds <= PIP_LITERAL_MAX)
+		{
+			total = max(rounds, 1);
+			if (cap > 0 && cap <= PIP_LITERAL_MAX) total = cap;
+			lit = rounds;
+		}
+		else
+		{
+			total = PIP_TENTHS;
+			lit = int(frac * PIP_TENTHS + 0.5);
+		}
+
+		int left  = BAR_INSET;
+		int right = FACE_W - BAR_INSET;
+		int bot   = top + BAR_H;
+
+		int gap = 2;
+		int pipW = max(2, ((right - left) - gap * (total - 1)) / max(total, 1));
+
+		for (int p = 0; p < total; ++p)
+		{
+			int x0 = left + p * (pipW + gap);
+			int x1 = x0 + pipW;
+			if (x1 > right) break;
+
+			clearFlipped(c, x0, top, x1, bot,
+				(p < lit) ? tint : dim(tint, 0.18));
+		}
+	}
+
 	private TextureID paintFace(int pool, Weapon held, int slot, bool dry)
 	{
 		TextureID none;
@@ -1424,42 +1520,17 @@ class wr_Rig : EventHandler
 		// count of twelve or under gets one pip per ROUND -- literally the shots
 		// you have. Above that it falls to ten pips as tenths, because forty
 		// individually countable rectangles is just a worse bar.
-		int rounds = ammoLeft(held);
-		double frac = ammoFrac(held);
-
-		if (cv("wr_ammo", 1.0) > 0.0 && frac >= 0.0)
+		if (cv("wr_ammo", 1.0) > 0.0)
 		{
-			int lit, total;
-			if (rounds >= 0 && rounds <= PIP_LITERAL_MAX)
-			{
-				total = max(rounds, 1);
-				let capped = ammoCap(held);
-				if (capped > 0 && capped <= PIP_LITERAL_MAX) total = capped;
-				lit = rounds;
-			}
-			else
-			{
-				total = PIP_TENTHS;
-				lit = int(frac * PIP_TENTHS + 0.5);
-			}
+			pipRow(canvas, PIP_TOP, ammoLeft(held), ammoFrac(held),
+			       ammoCap(held), slotColor(slot));
 
-			int left  = BAR_INSET;
-			int right = FACE_W - BAR_INSET;
-			int top   = PIP_TOP;
-			int bot   = top + BAR_H;
-
-			int gap = 2;
-			int pipW = max(2, ((right - left) - gap * (total - 1)) / max(total, 1));
-
-			for (int p = 0; p < total; ++p)
-			{
-				int x0 = left + p * (pipW + gap);
-				int x1 = x0 + pipW;
-				if (x1 > right) break;
-
-				clearFlipped(canvas, x0, top, x1, bot,
-					(p < lit) ? slotColor(slot) : dim(slotColor(slot), 0.18));
-			}
+			// The secondary reserve gets its own row directly under the first,
+			// thinner and in a cooler tint so the two are never confused at a
+			// glance. Drawn only when alt fire has a pile of its own.
+			pipRow(canvas, PIP_TOP + BAR_H + 3, ammoLeft2(held), ammoFrac2(held),
+			       hasSecondAmmo(held) ? held.Ammo2.MaxAmount : -1,
+			       COLOR_ALT_PIP);
 		}
 
 		// SCANLINES, over everything.
@@ -1537,6 +1608,7 @@ class wr_Rig : EventHandler
 		mIconW.Clear();
 		mIconH.Clear();
 		mLabelH.Clear();
+		mAmmoW.Clear();
 
 		double panelW = cv("wr_panel_w", 3.5) * cv("wr_scale", 1.0);
 		double panelH = cv("wr_panel_h", 2.5) * cv("wr_scale", 1.0);
@@ -1692,18 +1764,23 @@ class wr_Rig : EventHandler
 			// a number in a lit bezel reads as an INSTRUMENT, which is what a
 			// thing strapped to your arm should look like.
 			int aid = 0;
+			double aw = AMMO_W_FRAC;
 			int rounds = ammoLeft(held);
 			if (cv("wr_ammo", 1.0) > 0.0 && rounds >= 0)
 			{
 				// WG13 reads its number from `data`; the other two read `text`.
 				// Passing both costs nothing and means the payload can be
 				// switched at spawn without a branch here.
+				string atext = ammoText(heldNow, rounds);
+				aw = readoutAspect(atext);
+
 				aid = level.AddBillboardPersistent(
 					(0, 0, 0), 3.5, 2.5, 0, 0,
 					LevelLocals.BBF_FIXED, readoutKind(), rounds,
 					rounds > 0 ? COLOR_AMMO : COLOR_AMMO_DRY,
-					LevelLocals.BBFL_NOHIT, 0, String.Format("%d", rounds));
+					LevelLocals.BBFL_NOHIT, 0, atext);
 			}
+			mAmmoW.Push(aw);
 
 			// THE MARKER, and it does not lock anything.
 			//
@@ -2193,7 +2270,7 @@ class wr_Rig : EventHandler
 			if (i < mAmmos.Size() && mAmmos[i] != 0)
 			{
 				level.MoveBillboard(mAmmos[i], pos + lift - (0, 0, panelH * 0.37 * pulse));
-				level.ResizeBillboard(mAmmos[i], panelW * AMMO_W_FRAC * pulse,
+				level.ResizeBillboard(mAmmos[i], panelW * mAmmoW[i] * pulse,
 				                                 panelH * AMMO_H_FRAC * pulse);
 				level.OrientBillboard(mAmmos[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
 				level.RollBillboard(mAmmos[i], roll);
@@ -2805,15 +2882,21 @@ class wr_Rig : EventHandler
 	// halfW = halfH * (0.60 + digits * 0.42); this is that ratio, so a
 	// three-digit count gets a wider badge than a one-digit one instead of both
 	// being stretched into the same box.
-	private static double readoutAspect(int rounds)
+	private static double readoutAspect(string text)
 	{
-		if (readoutKind() != LevelLocals.BB_WG13) return AMMO_W_FRAC;
+		int chars = max(text.Length(), 1);
 
-		int digits = 1;
-		if (rounds >= 10)  digits = 2;
-		if (rounds >= 100) digits = 3;
+		if (readoutKind() == LevelLocals.BB_WG13)
+		{
+			// The lozenge's own rule, and it takes DIGITS -- a badge showing a
+			// separator is not a case it has, so the separator is not counted.
+			return AMMO_H_FRAC * CARD_STRETCH * (0.60 + chars * 0.42) * 2.0;
+		}
 
-		return AMMO_H_FRAC * CARD_STRETCH * (0.60 + digits * 0.42) * 2.0;
+		// The segment payload fits its glyphs to the quad, so a longer string
+		// in a fixed box just gets thinner letters. Widening with the text keeps
+		// "148|12" as legible as "24" instead of squeezing it.
+		return clamp(AMMO_W_FRAC * (0.55 + chars * 0.22), AMMO_W_FRAC, 0.96);
 	}
 
 	// Which hand, if any, already has this weapon.
@@ -3371,6 +3454,10 @@ class wr_Rig : EventHandler
 	const COLOR_DRY      = 0x3A2226;
 	const COLOR_AMMO     = 0x8C97A8;
 	const COLOR_AMMO_DRY = 0xC65C5C;
+
+	// The alt-fire reserve. Cool against the slot colour so a second pip row is
+	// never mistaken for more of the first.
+	const COLOR_ALT_PIP  = 0x4FA3D1;
 
 	// The held-weapon mark. The OTHER hand gets the brighter one: that is the
 	// case where taking the card actually does something -- a swap, or a free
