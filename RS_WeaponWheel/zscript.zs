@@ -254,7 +254,13 @@ class wr_Rig : EventHandler
 		mHavePoke  = false;
 		mShapeSlot = -1;
 		mOpenTics  = 0;
-		mCardPos.Clear();
+
+		// NOT mCardPos.Clear() -- spawnPanels has already sized it, one entry
+		// per card, five lines above. Clearing it here emptied it for the ring's
+		// whole life, and everything that asks "where is that card" is guarded
+		// by its size, so the hovered-card light and the commit sparks both
+		// silently did nothing. Reset lives in destroyPanels, next to the arrays
+		// it was built alongside.
 		mFlipCard  = -1;
 		mFlipTics  = 0;
 		mLockTics  = int(cv("wr_locktics", 140));
@@ -531,7 +537,7 @@ class wr_Rig : EventHandler
 
 	// Geometry generation. Bump this whenever the numbers below change and every
 	// existing config picks them up once, automatically.
-	const CFG_VERSION = 16;
+	const CFG_VERSION = 17;
 
 	private void migrateConfig()
 	{
@@ -552,7 +558,7 @@ class wr_Rig : EventHandler
 		// config the first time and the saved value wins forever -- so turning
 		// it on means rewriting it here once, which is the entire reason this
 		// stamp exists.
-		setCv("wr_models", 1);
+		setCv("wr_models", 0);
 		setCv("wr_touch",   7.0);
 		setCv("wr_forward", 34.0);
 		setCv("wr_bullettime", 1);
@@ -2907,7 +2913,7 @@ class wr_Rig : EventHandler
 	private void spawnCardModels(PlayerPawn pmo)
 	{
 		clearCardModels();
-		if (cv("wr_models", 1.0) <= 0.0) return;
+		if (cv("wr_models", 0.0) <= 0.0) return;
 
 		double sc = cv("wr_model_scale", 0.16);
 

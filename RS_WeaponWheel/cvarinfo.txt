@@ -276,13 +276,14 @@ user bool wr_subcards = true;
 // model-based weapon set rather than a list we knew about, and copies nothing.
 //
 // The spawned copy is defanged: not pickupable, not in the blockmap, no
-// thinking, no gravity, not on the automap. A weapon with no MODELDEF entry
-// shows its pickup SPRITE in the world instead, which still has stereo depth
-// and still beats a flat icon.
+// gravity, not on the automap.
 //
-// ON by default. It is the only thing the rig does that puts actors in the
-// world, so it is also the first thing to switch off if a weapon set does
-// something surprising when its classes are spawned.
-user bool  wr_models      = true;
+// OFF, and PARKED rather than removed. Whether a card shows geometry depends
+// entirely on the loaded weapon set, and a set is free to gate its own pickup
+// models behind a cvar of its own -- VanillaVRPlus branches its Spawn state on
+// evw_pickupmodel, which defaults to 0. That is too many other people's
+// switches between a setting and a result for this to be on by default, or to
+// be worth chasing further.
+user bool  wr_models      = false;
 user float wr_model_scale = 0.16;
 user float wr_model_lift  = 3.0;
