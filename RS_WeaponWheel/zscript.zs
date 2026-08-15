@@ -130,7 +130,14 @@ class wr_Rig : EventHandler
 	// the card rather than from the hand. Recorded during layout because that is
 	// the only place the position exists -- and read during commit, which
 	// happens before the ring is torn down.
-	Array<Vector3> mCardPos;
+	// THREE ARRAYS, NOT ONE OF VECTOR3.
+	//
+	// ZScript's dynamic arrays take integral base types only -- Array<Vector3>
+	// is rejected outright, exactly as Array<Vector2> is for the icon sizes
+	// twenty lines up. Read cardPos() rather than indexing these directly.
+	Array<double> mCardX;
+	Array<double> mCardY;
+	Array<double> mCardZ;
 
 	// Which card is flipping as the ring folds, and how long is left of it.
 	int mFlipCard;
@@ -459,7 +466,7 @@ class wr_Rig : EventHandler
 		mAccents.Clear();
 		mGauges.Clear();
 		mFaces.Clear();
-		mCardPos.Clear();
+		mCardX.Clear(); mCardY.Clear(); mCardZ.Clear();
 		mMarks.Clear();
 		mBaseColor.Clear();
 		mIconW.Clear();
@@ -1756,7 +1763,7 @@ class wr_Rig : EventHandler
 			if (fid != 0) level.SetBillboardGroup(fid, grp);
 			if (mid != 0) level.SetBillboardGroup(mid, grp);
 			if (aid != 0) level.SetBillboardGroup(aid, grp);
-			mCardPos.Push((0, 0, 0));
+			mCardX.Push(0); mCardY.Push(0); mCardZ.Push(0);
 			mGroups.Push(grp);
 		}
 	}
@@ -2007,7 +2014,7 @@ class wr_Rig : EventHandler
 				roll += (1.0 - (1.0 - ft) * (1.0 - ft)) * cv("wr_flip", 360.0);
 			}
 
-			if (i < mCardPos.Size()) mCardPos[i] = pos;
+			if (i < mCardX.Size()) { mCardX[i] = pos.X; mCardY[i] = pos.Y; mCardZ[i] = pos.Z; }
 
 
 			// FOCUS. Cards you are not pointing at step back.
@@ -2990,6 +2997,16 @@ class wr_Rig : EventHandler
 		if (id != 0) level.SetBillboardAlpha(id, alpha);
 	}
 
+	// Reassembles a card's position from the three arrays it has to live in.
+	// Bounds-checked because every caller is already asking "is there a card
+	// there", and returning a zero vector is a visible wrong answer rather than
+	// an abort.
+	private Vector3 cardPos(int i) const
+	{
+		if (i < 0 || i >= mCardX.Size()) return (0, 0, 0);
+		return (mCardX[i], mCardY[i], mCardZ[i]);
+	}
+
 	// ONE LIGHT, ON THE CARD YOU ARE POINTING AT.
 	//
 	// Not one per card, and that is the optimisation that matters: dynamic
@@ -3007,7 +3024,7 @@ class wr_Rig : EventHandler
 		bool want = cv("wr_light", 1.0) > 0.0 && mHovered != 0;
 
 		int card = cardIndexOf(mHovered);
-		if (card < 0 || card >= mCardPos.Size()) want = false;
+		if (card < 0 || card >= mCardX.Size()) want = false;
 
 		if (!want)
 		{
@@ -3017,11 +3034,11 @@ class wr_Rig : EventHandler
 
 		if (mLight == null)
 		{
-			mLight = Actor(Actor.Spawn("WR_CardLight", mCardPos[card], NO_REPLACE));
+			mLight = Actor(Actor.Spawn("WR_CardLight", cardPos(card), NO_REPLACE));
 			if (mLight == null) return;
 		}
 
-		mLight.SetOrigin(mCardPos[card], true);
+		mLight.SetOrigin(cardPos(card), true);
 
 		double breathe = 1.0 + 0.12 * sin(mHoverTics * PULSE_SPEED);
 		int r1 = int(cv("wr_light_size", 44.0) * breathe);
@@ -3296,9 +3313,9 @@ class wr_Rig : EventHandler
 		// sparks -- because it is the one outcome you might genuinely not have
 		// meant.
 		int hitCard = cardIndexOf(mHovered);
-		if (hitCard >= 0 && hitCard < mCardPos.Size())
+		if (hitCard >= 0 && hitCard < mCardX.Size())
 		{
-			sparks(mCardPos[hitCard], sparkColor(hitCard), dry ? 0.4 : 1.0);
+			sparks(cardPos(hitCard), sparkColor(hitCard), dry ? 0.4 : 1.0);
 
 			// And it flips as it folds away. Roll is a real axis now, and the
 			// group collapse keeps the billboards alive long enough to see it.
