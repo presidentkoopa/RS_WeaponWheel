@@ -56,13 +56,7 @@ user float wr_weaponshrink = 0.5;
 // bigger" stays one thought instead of four sliders.
 user float wr_scale    = 1.0;
 
-// Sprite the held weapon is swapped to while the rig is open. PUNG is Doom's
-// fist. Display only -- the weapon itself is untouched.
-user string wr_fistsprite = "PUNG";
 
-// Weapon class borrowed for the open-hand look. Its model and sprite are what
-// the rig hand shows while the cards are up.
-user string wr_fistclass = "WR_Hand";
 
 // Slow time while the wheel is up, via BulletTimeX if it is loaded. Its
 // activate is a toggle, so turning this on means opening the wheel during a

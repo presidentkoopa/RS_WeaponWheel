@@ -62,7 +62,9 @@ OptionMenu wr_Options
 	StaticText "Reach", gold
 	// Depth tolerance more than reach: how far in front of or behind the grid
 	// your hand may sit and still register.
-	Slider "Touch radius",              "wr_touch",        1.0, 20.0, 0.5, 1
+	// 0 turns reaching off and leaves the beam as the only way in. Drop
+	// wr_forward toward 0 to bring the ring into actual arm reach.
+	Slider "Reach-in radius (0 = off)", "wr_touch",        0.0, 20.0, 0.5, 1
 	Slider "Stick deadzone",            "wr_stickdead",    500, 10000, 250, 0
 
 	StaticText ""

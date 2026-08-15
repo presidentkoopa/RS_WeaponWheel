@@ -1,19 +1,24 @@
 version "4.10"
 
-// Wrist rig -- weapon panels that live around your off hand, picked by
-// reaching into them with your main hand.
+// Wrist rig -- weapon cards in a ring around one hand, taken by pointing at
+// one and pulling the trigger, or by reaching into it.
 //
-// Deliberately built only on the parts of the billboard system the audit
-// cleared:
+// TWO WAYS IN, and they are not rivals. The beam is for a card across the
+// ring; the hand is for the one you are already at. When both answer, the hand
+// wins -- you had to put it there, so it is the more deliberate act. Reaching
+// is switched off with wr_touch 0, which leaves the beam alone.
 //
-//   * BBF_FIXED only. Camera-facing panels are tested against the wrong
-//     orientation, and TouchBillboard on one reports a hit from anywhere in
-//     the room. Panels here are oriented by hand each tic instead.
-//   * No billboard groups. Group scale moves the picture without moving the
-//     hit box, and a group scaled to zero stays clickable.
+// BBF_FIXED only, still. Camera-facing panels are tested against the wrong
+// orientation and TouchBillboard on one reports a hit from anywhere in the
+// room, so cards are oriented by hand every tic instead.
 //
-// So this needs no engine changes. It is also why the panels appear instantly
-// rather than growing -- the grow animation is the broken path.
+// THIS NEEDS ENGINE CHANGES, and the note here used to say it did not. It also
+// used to say groups were unusable because group scale moved the picture
+// without moving the hit box and a group scaled to zero stayed clickable --
+// both true, both found by this mod, and both fixed in the fork (see its
+// FORK_CHANGES.md section 22). The cards are grouped objects now, and the
+// billboard roll axis, the VR input suppression, the borrowed laser and the
+// haptics were all added for this.
 
 // Lives outside the EventHandler on purpose.
 //
@@ -135,13 +140,6 @@ class wr_Rig : EventHandler
 	int  mLockTics;
 	int  mCentreId, mCentreIcon, mCentreLabel;
 	Vector2 mSavedScale;
-	SpriteID mSavedSprite;
-	Actor    mSavedCaller;
-	Actor    mFistCaller;
-	SpriteID mFistSprite;
-	int      mFistFrame;
-	int      mFistSpriteOnly;
-	int      mSavedFrame;
 	bool    mHaveSavedScale;
 	bool    mTouching;            // hand is physically inside a card
 	bool    mBtOn;                // we are the ones holding bullet time on
@@ -422,91 +420,34 @@ class wr_Rig : EventHandler
 		if (psp == null) return;
 
 		mSavedScale = psp.scale;
-		mSavedSprite = psp.Sprite;
-		mSavedFrame  = psp.Frame;
 		mHaveSavedScale = true;
 
 		psp.scale = psp.scale * factor;
 
-		// The gun becomes a fist for as long as the rig is up.
+		// THE GUN USED TO BECOME A FIST HERE. It does not any more.
 		//
-		// A HUD MODEL is looked up as FindModelFrame(psp->Caller, sprite, frame)
-		// -- so the Caller is half the key, and swapping only the sprite leaves a
-		// model-using weapon showing its own model regardless. The Caller has to
-		// point at the fist too.
+		// The swap worked by pointing the psprite's Caller, sprite and frame at
+		// a carrier weapon that owned a hand model -- Caller because a HUD model
+		// is looked up as FindModelFrame(psp->Caller, sprite, frame), so swapping
+		// the sprite alone leaves a model-using weapon showing its own model.
 		//
-		// Still display-only: no state is run on the weapon, nothing about
-		// firing, reloading or ammo is touched. The psprite is simply told to
-		// draw something else for as long as the rig is up.
-		mSavedCaller = psp.Caller;
-
-		// Worked out once here and then FORCED every tic by holdFistLook, because
-		// the weapon's own Ready state rewrites sprite and frame continuously.
-		mFistCaller     = null;
-		mFistSpriteOnly = 0;
-
-		// Given on demand rather than at spawn: the carrier has to be IN the
-		// inventory for FindInventory to hand back an actor, and the rig cannot
-		// assume a playerclass it does not control put one there.
-		string handClass = cvString("wr_fistclass", "WR_Hand");
-		if (pmo.FindInventory(handClass) == null) pmo.GiveInventory(handClass, 1);
-
-		let fistWeap = Weapon(pmo.FindInventory(handClass));
-		if (fistWeap != null)
-		{
-			let ready = fistWeap.GetReadyState();
-			if (ready != null)
-			{
-				mFistCaller = fistWeap;
-				mFistSprite = ready.sprite;
-				mFistFrame  = ready.frame;
-			}
-		}
-
-		if (mFistCaller == null)
-		{
-			// No fist to borrow -- fall back to the sprite swap, which is still
-			// right for a weapon drawn as a sprite rather than a model.
-			mFistSpriteOnly = Actor.GetSpriteIndex(cvString("wr_fistsprite", "PUNG"));
-		}
-
-		// Says which of the two failures is happening, because from outside they
-		// look identical: the fist class was never found, or it was found and the
-		// weapon's state machine is overwriting the swap faster than it is
-		// applied. Guessing between those has cost two launches.
-		if (cv("wr_debug", 0.0) > 0.0)
-		{
-			string found = "NOT FOUND";
-			if (mFistCaller != null) found = mFistCaller.GetClassName();
-
-			Console.Printf("\c[Gold]WRISTRIG\c- fist: class '%s' -> %s, spriteOnly=%d",
-				handClass, found, mFistSpriteOnly);
-		}
-
-		holdFistLook(pmo);
+		// Shrinking already does the job it was there for: it gets the gun out
+		// of the way and it marks the mode, so the hand visibly stops being a
+		// weapon and starts being a pointer without a word of UI saying so. The
+		// fist was a second answer to a question already answered, and it cost a
+		// carrier class, a model, a skin, a MODELDEF and two cvars.
+		holdWeaponShrink(pmo);
 	}
 
-	// Forces the fist look back over whatever the weapon's state machine just
-	// wrote. Cheap -- four field writes -- and it has to happen after the
-	// playsim has ticked the psprite, which is what WorldTick is.
-	private void holdFistLook(PlayerPawn pmo)
+	// Re-asserts the shrink over whatever the weapon's state machine just wrote.
+	// Has to happen AFTER the playsim has ticked the psprite, which is what
+	// WorldTick is -- anywhere earlier and it is overwritten the same tic.
+	private void holdWeaponShrink(PlayerPawn pmo)
 	{
 		if (!mHaveSavedScale) return;
 
 		let psp = pmo.player.GetPSprite(mRigHand == 1 ? PSP_OFFHANDWEAPON : PSP_WEAPON);
 		if (psp == null) return;
-
-		if (mFistCaller != null)
-		{
-			psp.Caller = mFistCaller;
-			psp.Sprite = mFistSprite;
-			psp.Frame  = mFistFrame;
-		}
-		else if (mFistSpriteOnly > 0)
-		{
-			psp.Sprite = SpriteID(mFistSpriteOnly);
-			psp.Frame  = 0;
-		}
 
 		psp.scale = mSavedScale * cv("wr_weaponshrink", 0.5);
 	}
@@ -516,28 +457,9 @@ class wr_Rig : EventHandler
 		if (!mHaveSavedScale) return;
 
 		let psp = pmo.player.GetPSprite(mRigHand == 1 ? PSP_OFFHANDWEAPON : PSP_WEAPON);
-		if (psp != null)
-		{
-			psp.scale  = mSavedScale;
-			psp.Sprite = mSavedSprite;
-			psp.Frame  = mSavedFrame;
-			if (mSavedCaller != null) psp.Caller = mSavedCaller;
-		}
+		if (psp != null) psp.scale = mSavedScale;
 
 		mHaveSavedScale = false;
-	}
-
-	// The parameter is NOT called 'cvar'. Identifiers are case-insensitive, so
-	// that name shadows the CVar class and CVar.GetCVar resolves to a method on
-	// the string -- which reports as "Unknown function GetCVar" and sends you
-	// looking at scope instead of at the parameter list.
-	private static string cvString(string key, string fallback)
-	{
-		let c = CVar.GetCVar(key, players[consoleplayer]);
-		if (c == null) return fallback;
-
-		string s = c.GetString();
-		return (s.Length() == 0) ? fallback : s;
 	}
 
 	// Nothing else clears the suppression flag, and a stuck one is a player who
@@ -603,7 +525,6 @@ class wr_Rig : EventHandler
 		setCv("wr_tilt",   12.0);
 		setCv("wr_touch",   7.0);
 		setCv("wr_forward", 34.0);
-		setCvStr("wr_fistclass", "WR_Hand");
 		setCv("wr_bullettime", 1);
 		setCv("wr_roll",    0.0);
 
@@ -615,15 +536,6 @@ class wr_Rig : EventHandler
 	{
 		let c = CVar.GetCVar(name, players[consoleplayer]);
 		if (c != null) c.SetFloat(value);
-	}
-
-	// Strings need their own setter -- setCv only writes floats, which is why
-	// wr_fistclass stayed on an old value through every geometry migration and
-	// the carrier class was never actually used.
-	private static void setCvStr(string name, string value)
-	{
-		let c = CVar.GetCVar(name, players[consoleplayer]);
-		if (c != null) c.SetString(value);
 	}
 
 	// Reads a user cvar, falling back rather than aborting. GetCVar returns null
@@ -1924,7 +1836,7 @@ class wr_Rig : EventHandler
 		//
 		// The design said so from the start and the call was never wired in,
 		// which is why the hand has never once been visible.
-		holdFistLook(pmo);
+		holdWeaponShrink(pmo);
 
 		layout(pmo);
 
@@ -1986,13 +1898,23 @@ class wr_Rig : EventHandler
 		// answer, the hand is the more deliberate act -- you had to put it there
 		// -- so it takes precedence over wherever the beam happened to be
 		// pointing past it.
-		int touched;
-		Vector2 tuv;
-		double tdist;
-		[touched, tuv, tdist] = level.TouchBillboard(org, cv("wr_touch", 7.0) * cv("wr_scale", 1.0));
+		// wr_touch 0 turns reaching off outright and leaves the beam as the only
+		// way in. Skipped rather than called with a zero radius, because "no
+		// radius" and "do not ask" are different things and only one of them is
+		// free.
+		double touchR = cv("wr_touch", 7.0) * cv("wr_scale", 1.0);
+		mTouching = false;
 
-		mTouching = (touched != 0);
-		if (mTouching) hit = touched;
+		if (touchR > 0.0)
+		{
+			int touched;
+			Vector2 tuv;
+			double tdist;
+			[touched, tuv, tdist] = level.TouchBillboard(org, touchR);
+
+			mTouching = (touched != 0);
+			if (mTouching) hit = touched;
+		}
 
 		updateHover(hit);
 
@@ -2591,45 +2513,3 @@ class WR_TestPlayer : DoomPlayer
 	}
 }
 
-// Carrier for the open-hand model.
-//
-// It exists only so something in the player's inventory owns the model the rig
-// swaps to: a HUD model is found via FindModelFrame(psp->Caller, ...), so the
-// Caller has to be a real actor whose class has a MODELDEF entry.
-//
-// Not in any slot, never auto-switched to, no ammo, no attack -- it cannot be
-// selected or fired by any normal means. It is a peg to hang a model on.
-class WR_Hand : Weapon
-{
-	Default
-	{
-		Weapon.SelectionOrder 32767;
-		Weapon.SlotNumber -1;
-		+WEAPON.NOAUTOAIM;
-		+WEAPON.NO_AUTO_SWITCH;
-		+WEAPON.NOAUTOSWITCHTO;
-		+INVENTORY.UNDROPPABLE;
-		+INVENTORY.UNTOSSABLE;
-		Inventory.PickupMessage "";
-		Tag "Hand";
-	}
-
-	States
-	{
-	Spawn:
-		TNT1 A -1;
-		Stop;
-	Ready:
-		PUNG A 1 A_WeaponReady();
-		Loop;
-	Deselect:
-		PUNG A 1 A_Lower();
-		Loop;
-	Select:
-		PUNG A 1 A_Raise();
-		Loop;
-	Fire:
-		PUNG A 1;
-		Goto Ready;
-	}
-}
