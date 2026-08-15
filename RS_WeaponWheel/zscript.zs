@@ -86,7 +86,8 @@ class wr_Rig : EventHandler
 	Array<int> mGauges;           // BB_BAR: ammo as a proportion
 	Array<int> mFaces;            // one painted canvas texture per card
 	Array<int> mShadows;          // one dark quad behind each card
-	Array<int> mSlotNums;         // the key you would press, on the card it maps to
+	Array<int> mSlotNums;
+	int mStatsId;                 // the panel beside the ring, 0 when down         // the key you would press, on the card it maps to
 	Array<int> mMarks;            // "you already have this", per card
 	Actor      mLight;            // one dynamic light, on the hovered card
 	Array<Actor> mModels;         // a real weapon model per card, when enabled
@@ -1880,6 +1881,245 @@ class wr_Rig : EventHandler
 		return color(255, r, g, b);
 	}
 
+	//==========================================================================
+	// The stats panel, and the contract that fills it
+	//==========================================================================
+	//
+	// THE WHEEL NEVER MENTIONS ANY WEAPON MOD. It asks whoever is listening.
+	//
+	//   ServiceIterator.Find("RS_WheelStats")
+	//   svc.GetString("stats", "", 0, 0, <the weapon actor>)
+	//
+	// and renders whatever comes back. RS_Main answers with tier, condition,
+	// curses and sockets; DLRA or anything else answers with its own; nothing
+	// answers and the panel shows what the wheel itself knows. No patch pk3, no
+	// hard dependency, no version to keep in step -- a provider is one class
+	// and it can ship inside the mod that owns the data.
+	//
+	// THE FORMAT is deliberately boring: newline-separated rows, tab-separated
+	// fields, first field names the row type. A provider building this needs a
+	// string builder and nothing else, and a malformed row is skipped rather
+	// than fatal -- a stats panel must never be able to break a weapon menu.
+	//
+	//   title <name>
+	//   tier  <word>  <0xRRGGBB>
+	//   promo <count>
+	//   stat  <label>  <value>  <0xRRGGBB>  <fill 0-1>  <earned 0-1>  <flag>
+	//   cond  <now>  <max>  <backfire percent>
+	//   sock  <used>  <total>
+	//   affix <name>
+	//
+	// `flag` is "", "cursed" or "locked". `earned` is the portion of `fill`
+	// that was gained rather than rolled, drawn brighter -- the two-tone bar
+	// that tells you a weapon's history at a glance.
+	private string askForStats(Weapon w)
+	{
+		if (w == null) return "";
+
+		let it = ServiceIterator.Find("RS_WheelStats");
+		if (it == null) return "";
+
+		// FIRST ANSWER WINS. Two providers for one weapon means two mods both
+		// claim to own it, and picking arbitrarily is better than concatenating
+		// two descriptions of the same gun into one unreadable panel.
+		Service svc;
+		while ((svc = it.Next()) != null)
+		{
+			string s = svc.GetString("stats", "", 0, 0, w);
+			if (s.Length() > 0) return s;
+		}
+		return "";
+	}
+
+	// What the wheel can say with no provider loaded. Not a placeholder -- it
+	// is the honest answer for a vanilla weapon, and it means the panel is
+	// worth switching on whatever you are playing.
+	private string ownStats(Weapon w, int slot)
+	{
+		if (w == null) return "";
+
+		string s = "title\t" .. w.GetTag() .. "\n";
+		s = s .. "tier\tSlot " .. slot .. "\t" .. String.Format("0x%06X", slotColor(slot)) .. "\n";
+
+		int loaded = ammoLoaded(w);
+		if (loaded >= 0)
+		{
+			double f = ammoLoadedFrac(w);
+			s = s .. "stat\tLoaded\t" .. loaded .. "\t"
+			      .. String.Format("0x%06X", slotColor(slot)) .. "\t"
+			      .. (f >= 0.0 ? f : 0.0) .. "\t0\t\n";
+		}
+
+		int res = ammoReserve(w);
+		if (res >= 0) s = s .. "stat\tReserve\t" .. res .. "\t0x4FA3D1\t0\t0\t\n";
+
+		return s;
+	}
+
+	// Paint the panel from whatever the provider said.
+	//
+	// Rows are drawn in the order they arrive, so the PROVIDER owns the
+	// priority -- it knows which stat matters for its own weapons and the wheel
+	// has no business guessing. The only thing forced to the bottom is
+	// condition, because it is the one row that changes what happens when you
+	// pull the trigger.
+	private TextureID paintStats(string data, string weaponName)
+	{
+		TextureID none;
+		none.SetInvalid();
+		if (data.Length() == 0) return none;
+
+		let canvas = TexMan.GetCanvas(STATS_TEX);
+		if (canvas == null) return none;
+
+		TexMan.SetCanvasTextureTranslucent(STATS_TEX, true);
+
+		canvas.Clear(0, 0, STATS_W, STATS_H, 0xE8121820);
+
+		Array<string> lines;
+		data.Split(lines, "\n", TOK_SKIPEMPTY);
+
+		string title = weaponName;
+		string tierWord = "";
+		color  tierCol = COLOR_BEAM_IDLE;
+		int    promo = 0;
+		int    condNow = -1, condMax = 100, backfire = 0;
+		int    sockUsed = 0, sockTotal = 0;
+
+		int y = STATS_ROW0;
+
+		for (int i = 0; i < lines.Size(); ++i)
+		{
+			Array<string> f;
+			lines[i].Split(f, "\t", TOK_KEEPEMPTY);
+			if (f.Size() < 2) continue;
+
+			string kind = f[0];
+
+			if (kind == "title") { title = f[1]; continue; }
+
+			if (kind == "tier" && f.Size() >= 3)
+			{
+				tierWord = f[1];
+				tierCol  = color(f[2].ToInt() | 0xFF000000);
+				continue;
+			}
+
+			if (kind == "promo") { promo = f[1].ToInt(); continue; }
+
+			if (kind == "cond" && f.Size() >= 4)
+			{
+				condNow  = f[1].ToInt();
+				condMax  = max(1, f[2].ToInt());
+				backfire = f[3].ToInt();
+				continue;
+			}
+
+			if (kind == "sock" && f.Size() >= 3)
+			{
+				sockUsed  = f[1].ToInt();
+				sockTotal = f[2].ToInt();
+				continue;
+			}
+
+			if (kind == "stat" && f.Size() >= 5)
+			{
+				if (y > STATS_H - STATS_ROWH * 2) continue;   // out of panel
+
+				color c = (f[3].Length() > 0)
+					? color(f[3].ToInt() | 0xFF000000) : COLOR_LABEL;
+
+				string flag = (f.Size() >= 7) ? f[6] : "";
+				bool cursed = (flag == "cursed");
+
+				canvas.DrawText(smallfont, Font.CR_UNTRANSLATED, STATS_PAD, y, f[1],
+					DTA_ScaleX, 1.0, DTA_ScaleY, 1.0);
+				canvas.DrawText(smallfont, Font.CR_UNTRANSLATED, STATS_VALX, y, f[2],
+					DTA_ScaleX, 1.0, DTA_ScaleY, 1.0);
+
+				// The bar, and its two tones. Dim is what the weapon rolled;
+				// bright is what it has earned since. A cursed row is outlined
+				// in crimson with the missing part hatched, so a wound looks
+				// like one before any number is read.
+				double fill   = f[4].ToDouble();
+				double earned = (f.Size() >= 6) ? f[5].ToDouble() : 0.0;
+
+				if (fill >= 0.0)
+				{
+					int bx = STATS_BARX;
+					int bw = STATS_W - STATS_PAD - bx;
+					int by = y + 2;
+
+					canvas.Clear(bx, by, bx + bw, by + STATS_BARH, dim(c, 0.16));
+
+					int solid = int(bw * clamp(fill, 0.0, 1.0));
+					int gain  = int(bw * clamp(earned, 0.0, 1.0));
+
+					if (solid > gain)
+						canvas.Clear(bx, by, bx + solid - gain, by + STATS_BARH, dim(c, 0.55));
+					if (gain > 0)
+						canvas.Clear(bx + solid - gain, by, bx + solid, by + STATS_BARH, c);
+
+					if (cursed)
+						canvas.DrawLineFrame(COLOR_CURSE, bx, by, bw, STATS_BARH);
+				}
+
+				y += STATS_ROWH;
+				continue;
+			}
+		}
+
+		// Header last, so nothing scrolled into it.
+		canvas.Clear(0, 0, STATS_W, STATS_HDR, dim(tierCol, 0.22));
+		canvas.Clear(0, 0, STATS_W, 3, tierCol);
+		canvas.DrawText(smallfont, Font.CR_UNTRANSLATED, STATS_PAD, 8, title);
+		if (tierWord.Length() > 0)
+			canvas.DrawText(smallfont, Font.CR_UNTRANSLATED, STATS_W - 90, 8, tierWord);
+
+		// Promotion chevrons: service marks, not a number in a cell.
+		for (int p = 0; p < min(promo, 8); ++p)
+		{
+			int px = STATS_W - 96 - p * 9;
+			canvas.DrawThickLine(px, 12, px + 5, 16, 3, tierCol, 255);
+			canvas.DrawThickLine(px, 20, px + 5, 16, 3, tierCol, 255);
+		}
+
+		// Condition, pinned to the bottom whatever else arrived.
+		if (condNow >= 0)
+		{
+			int cy = STATS_H - 34;
+			bool danger = (condNow < 20);
+			color cc = danger ? COLOR_CURSE : 0x6FE3B0;
+
+			canvas.Clear(STATS_PAD, cy, STATS_W - STATS_PAD, cy + 26, dim(cc, 0.14));
+			canvas.DrawText(smallfont, Font.CR_UNTRANSLATED, STATS_PAD + 6, cy + 6,
+				String.Format("CND %d", condNow));
+
+			int bx = STATS_PAD + 84;
+			int bw = STATS_W - STATS_PAD - 60 - bx;
+			canvas.Clear(bx, cy + 9, bx + bw, cy + 17, dim(cc, 0.25));
+			canvas.Clear(bx, cy + 9, bx + int(bw * (double(condNow) / condMax)), cy + 17, cc);
+
+			if (danger && backfire > 0)
+				canvas.DrawText(smallfont, Font.CR_UNTRANSLATED, STATS_W - 62, cy + 6,
+					String.Format("%d%%", backfire));
+		}
+
+		// Sockets as pips -- the same vocabulary the cards use for ammo.
+		if (sockTotal > 0)
+		{
+			int sy = STATS_H - 60;
+			for (int s = 0; s < min(sockTotal, 8); ++s)
+			{
+				int sx = STATS_PAD + s * 26;
+				canvas.Clear(sx, sy, sx + 20, sy + 10,
+					(s < sockUsed) ? 0x3FBF6F : 0x1C3226);
+			}
+		}
+
+		return TexMan.CheckForTexture(STATS_TEX, TexMan.Type_Any);
+	}
+
 	private void spawnPanels()
 	{
 		mIds.Clear();
@@ -2972,6 +3212,7 @@ class wr_Rig : EventHandler
 
 		decor(pmo, org, dir, reach, hit != 0);
 		cardLight(pmo);
+		statsPanel(pmo, viewRightOf(pmo));
 
 
 		// Committing is driven from InputProcess instead, so the fire press can
@@ -3278,6 +3519,7 @@ class wr_Rig : EventHandler
 		// and clearing the pool would take everyone else's with it.
 		if (mShapeSlot >= 0) { level.RemoveShape(mShapeSlot); mShapeSlot = -1; }
 		if (mLight != null)  { mLight.Destroy(); mLight = null; }
+		if (mStatsId != 0)   { level.RemoveBillboard(mStatsId); mStatsId = 0; }
 		clearCardModels();
 		if (mWaveHeld)  { level.SetGlowWave(0.0, 0.0, 0.0, 0); mWaveHeld = false; }
 	}
@@ -3579,6 +3821,94 @@ class wr_Rig : EventHandler
 		mLight.A_AttachLight('wrcard', DynamicLight.PointLight,
 			slotColor(mCardSlots[card]), r1, int(r1 * 0.35),
 			DynamicLight.LF_ATTENUATE);
+	}
+
+	private static Vector3 viewRightOf(PlayerPawn pmo)
+	{
+		return (cos(pmo.angle - 90), sin(pmo.angle - 90), 0);
+	}
+
+	// THE PANEL HANGS BESIDE THE RING AND READS WHAT YOU ARE POINTING AT.
+	//
+	// The hovered weapon, not the held one, because the panel exists to be
+	// compared against -- you look at it to decide, and by the time it is in
+	// your hand the decision is made.
+	//
+	// Off to the side rather than in the middle: the centre is the neutral
+	// "keep what I have" target and giving it a second job muddies the
+	// clearest thing in the layout, and a panel wide enough to read would
+	// either overlap the ring or push its radius past the reach it is tuned
+	// for.
+	//
+	// Repainted every tic for the same reason the card faces are -- a canvas
+	// is a command queue that the engine empties after playing it.
+	private void statsPanel(PlayerPawn pmo, Vector3 viewRight)
+	{
+		bool want = cv("wr_stats", 1.0) > 0.0 && mHovered != 0;
+
+		Class<Weapon> type = null;
+		int slot = 0;
+
+		int sub = subIndexOf(mHovered);
+		if (sub >= 0 && sub < mSubTypes.Size())
+		{
+			type = mSubTypes[sub];
+			if (mExpanded >= 0 && mExpanded < mCardSlots.Size()) slot = mCardSlots[mExpanded];
+		}
+		else
+		{
+			int card = cardIndexOf(mHovered);
+			if (card >= 0 && card < mTypes.Size())
+			{
+				type = mTypes[card];
+				slot = mCardSlots[card];
+			}
+		}
+
+		let held = (type != null) ? Weapon(pmo.FindInventory(type)) : null;
+		if (held == null) want = false;
+
+		if (!want)
+		{
+			if (mStatsId != 0) { level.RemoveBillboard(mStatsId); mStatsId = 0; }
+			return;
+		}
+
+		// Ask, and fall back to what the wheel itself knows. A vanilla weapon
+		// with no provider still gets a panel worth having.
+		string data = askForStats(held);
+		if (data.Length() == 0) data = ownStats(held, slot);
+
+		TextureID tex = paintStats(data, held.GetTag());
+		if (!tex.IsValid())
+		{
+			if (mStatsId != 0) { level.RemoveBillboard(mStatsId); mStatsId = 0; }
+			return;
+		}
+
+		if (mStatsId == 0)
+		{
+			mStatsId = level.AddBillboardPersistent(
+				(0, 0, 0), 1, 1, 0, 0,
+				LevelLocals.BBF_FIXED, LevelLocals.BB_TEXTURE, tex.GetIndex(),
+				0xFFFFFF, LevelLocals.BBFL_NOHIT, 0, "");
+		}
+
+		double panelW = cv("wr_panel_w", 4.2) * cv("wr_scale", 1.0);
+		double w = panelW * cv("wr_stats_size", 2.2);
+		double h = w * (double(STATS_H) / STATS_W) / CARD_STRETCH;
+
+		// Anchored off the ring's own centre and pushed out along the side the
+		// cvar names, so it clears the cards whatever the ring's radius grew to.
+		Vector3 at = mAnchor
+		           + viewRight * (cv("wr_stats_side", 1.0) * (w * 0.5 + panelW * 1.6))
+		           + (0, 0, cv("wr_stats_rise", 0.0));
+
+		double faceYaw = pmo.angle + 180;
+
+		level.MoveBillboard(mStatsId, at);
+		level.ResizeBillboard(mStatsId, w, h);
+		level.OrientBillboard(mStatsId, faceYaw, cv("wr_tilt", 12.0), LevelLocals.BBF_FIXED);
 	}
 
 	private void updateHover(int hit)
@@ -3918,6 +4248,44 @@ class wr_Rig : EventHandler
 	// Dim on purpose: a reference you glance at, never a thing competing with
 	// the weapon name for attention.
 	const COLOR_SLOTNUM = 0x5F6874;
+
+	// THE STATS PANEL.
+	//
+	// 320x240 is a compromise: big enough that SmallFont rows are legible at
+	// arm's length, small enough that a raster held that close does not show
+	// its pixels the way a wider one would.
+	const STATS_TEX  = "WRSTATS";
+	const STATS_W    = 320;
+	const STATS_H    = 240;
+	const STATS_HDR  = 30;
+	const STATS_PAD  = 10;
+	const STATS_ROW0 = 42;
+	const STATS_ROWH = 20;
+	const STATS_VALX = 120;
+	const STATS_BARX = 180;
+	const STATS_BARH = 8;
+
+	// Crimson, matching the Cursed tier rather than inventing another red.
+	const COLOR_CURSE = 0xC81E37;
+
+	// THE STATS PANEL.
+	//
+	// 320x240 is a compromise: big enough that SmallFont rows are legible at
+	// arm.s length, small enough that a raster held that close does not show
+	// its pixels the way a wider one would.
+	const STATS_TEX  = "WRSTATS";
+	const STATS_W    = 320;
+	const STATS_H    = 240;
+	const STATS_HDR  = 30;
+	const STATS_PAD  = 10;
+	const STATS_ROW0 = 42;
+	const STATS_ROWH = 20;
+	const STATS_VALX = 120;
+	const STATS_BARX = 180;
+	const STATS_BARH = 8;
+
+	// Crimson, matching the Cursed tier rather than inventing a red.
+	const COLOR_CURSE = 0xC81E37;
 
 	// Billboards render 1.2x taller than authored -- world Z is stretched by the
 	// view matrix and the billboard path never unstretches it.
