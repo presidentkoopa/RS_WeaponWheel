@@ -94,7 +94,7 @@ The fork documents these in its own `FORK_CHANGES.md`, sections 22 to 26.
 ## Building
 
 ```bash
-zipdir -f RS_WeaponWheel.pk3 .
+zipdir -f RS_WeaponWheel.pk3 RS_WeaponWheel
 ```
 
 `zipdir` ships with the GZDoom source tree and lands in
