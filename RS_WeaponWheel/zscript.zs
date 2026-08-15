@@ -1718,11 +1718,20 @@ class wr_Rig : EventHandler
 		// One dimmed row every three. It is the cheapest possible trick and it
 		// does more than any of the above to stop the face reading as a picture
 		// pasted on a card and start it reading as a lit display.
+		// The phase CRAWLS, one row every few tics. A static scanline pattern is
+		// a texture; a drifting one is a signal. The face is already repainted
+		// every tic -- it has to be, a canvas is a queue -- so animating this
+		// costs one modulo.
 		double scan = cv("wr_canvas_scan", 0.22);
 		if (scan > 0.0)
 		{
-			for (int y = 0; y < FACE_H; y += 3)
+			int phase = 0;
+			double crawl = cv("wr_scan_crawl", 1.0);
+			if (crawl > 0.0) phase = int(level.maptime * crawl * 0.25) % 3;
+
+			for (int y = -3 + phase; y < FACE_H; y += 3)
 			{
+				if (y < 0) continue;
 				dimFlipped(canvas, 0x000000, scan, 0, y, FACE_W, 1);
 			}
 		}
@@ -2265,7 +2274,20 @@ class wr_Rig : EventHandler
 		// tumble, neither of which a group carries.
 		double grow = growFactor();
 
-		Vector3 origin = wrist + (0, 0, rise);
+		// THE RING BREATHES.
+		//
+		// A ring that is perfectly still while you stand still reads as a decal
+		// stuck to the air. A few millimetres of rise and fall, slow enough that
+		// you never catch it moving, is the difference between an image and an
+		// object -- the same reason the hovered card pulses rather than just
+		// changing colour.
+		//
+		// Off the level clock, not the open clock, so it does not restart from
+		// the same phase every summon.
+		double breathe = sin(level.maptime * cv("wr_idle_speed", 1.7))
+		               * cv("wr_idle", 0.35) * sc;
+
+		Vector3 origin = wrist + (0, 0, rise + breathe);
 
 		for (int i = 0; i < n; ++i)
 		{
@@ -2277,7 +2299,7 @@ class wr_Rig : EventHandler
 
 			Vector3 pos = wrist
 			            + viewRight * (cos(bearing) * ringR)
-			            + (0, 0, sin(bearing) * ringR + rise);
+			            + (0, 0, sin(bearing) * ringR + rise + breathe);
 
 			if (grow < 1.0) pos = origin + (pos - origin) * grow;
 
@@ -2290,11 +2312,24 @@ class wr_Rig : EventHandler
 				if (toEye.Length() > 0.01) pos += toEye.Unit() * cv("wr_pop", 1.5);
 			}
 
-			// Camera-facing, so every card looks at you wherever it sits in the
-			// arc -- an outward-facing card on the far side shows you its edge.
-			// The probe cleared this: B passed on both aim and touch, so the bug
-			// the audit predicted here does not exist.
+			// EVERY CARD LOOKS AT YOU INDIVIDUALLY.
+			//
+			// One shared yaw made the ring a flat sheet: every card pointed the
+			// same way, so the ones out at the edges were turned slightly away
+			// from your eye and the whole thing read as a poster. Solving the
+			// yaw per card from ITS position to YOUR eye turns the ring into a
+			// shallow bowl wrapped around you, which is what it has always been
+			// geometrically and never looked like.
+			//
+			// Still BBF_FIXED and still solved here rather than by BBF_CAMERA:
+			// camera-facing billboards are tested against the wrong orientation
+			// by the hit queries, which is the bug this mod was built to avoid.
 			double faceYaw = viewYaw + 180;
+			if (cv("wr_facing", 1.0) > 0.0)
+			{
+				Vector3 toMe = eye - pos;
+				if (toMe.Length() > 0.01) faceYaw = atan2(-toMe.Y, -toMe.X);
+			}
 
 			// THE CARD TUMBLES IN.
 			//
@@ -2469,12 +2504,40 @@ class wr_Rig : EventHandler
 				level.RollBillboard(mAccents[i], roll);
 			}
 
+			// PARALLAX. The artwork shifts inside its frame as you move.
+			//
+			// A card is a flat quad and in stereo your eyes know it. But the
+			// face already sits a shade IN FRONT of the plate, and anything
+			// standing off a surface should slide against it as your head moves
+			// -- so nudging the face along the card's own right and up axes by
+			// how far off-centre you are gives real depth for one dot product.
+			//
+			// It is a lenticular trick and it is the cheapest three dimensions
+			// in the mod: no extra billboard, no shader, no per-eye anything.
+			// Small on purpose -- past a few percent of the card it stops
+			// reading as depth and starts reading as the artwork being loose.
+			Vector3 par = (0, 0, 0);
+			double px = cv("wr_parallax", 0.06);
+			if (px > 0.0)
+			{
+				Vector3 toEye = eye - pos;
+				if (toEye.Length() > 0.01)
+				{
+					Vector3 v = toEye.Unit();
+					Vector3 cardUp = (0, 0, 1);
+					Vector3 cardRight = (cos(faceYaw - 90), sin(faceYaw - 90), 0);
+
+					par = cardRight * (v dot cardRight) * panelW * px
+					    + cardUp    * (v dot cardUp)    * panelH * px;
+				}
+			}
+
 			// The painted face, filling the card and riding a shade in front of
 			// the plate. Slightly inset so the SDF plate still shows as a rim
 			// around it -- which is what keeps the plate's glow visible.
 			if (i < mFaces.Size() && mFaces[i] != 0)
 			{
-				level.MoveBillboard(mFaces[i], pos + lift * 0.5);
+				level.MoveBillboard(mFaces[i], pos + lift * 0.5 + par);
 				level.ResizeBillboard(mFaces[i], panelW * 0.92 * pulse,
 				                                 panelH * 0.92 * pulse);
 				level.OrientBillboard(mFaces[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
@@ -2486,7 +2549,7 @@ class wr_Rig : EventHandler
 			// keeping the same anchor -- billboards are centre-origin.
 			if (i < mIcons.Size() && mIcons[i] != 0)
 			{
-				level.MoveBillboard(mIcons[i], pos + lift + (0, 0, panelH * 0.17 * pulse));
+				level.MoveBillboard(mIcons[i], pos + lift + par + (0, 0, panelH * 0.17 * pulse));
 				level.ResizeBillboard(mIcons[i], panelW * mIconW[i] * pulse,
 				                                 panelH * mIconH[i] * pulse);
 				level.OrientBillboard(mIcons[i], faceYaw, tilt, LevelLocals.BBF_FIXED);

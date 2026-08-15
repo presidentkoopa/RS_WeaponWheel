@@ -300,3 +300,26 @@ user float wr_shadow_offset = 0.35;
 // maps to. Also the only thing that still says which slot a card belongs to
 // once wr_subcards is off and several share one.
 user bool  wr_slotnum = true;
+
+
+// LAST TOUCHES
+
+// Every card solves its own yaw toward your eye instead of sharing one. Turns
+// the ring from a flat sheet into a shallow bowl wrapped around you -- which is
+// what it always was geometrically and never looked like.
+user bool  wr_facing = true;
+
+// The ring rises and falls a few millimetres while it sits there. Slow enough
+// that you never catch it moving; the difference between an image and an object.
+user float wr_idle       = 0.35;
+user float wr_idle_speed = 1.7;
+
+// The artwork slides inside its frame as your head moves. A lenticular trick,
+// and the cheapest depth in the mod -- no extra billboard, no shader. As a
+// fraction of the card; past a few percent it stops reading as depth and starts
+// reading as the artwork being loose.
+user float wr_parallax = 0.06;
+
+// Scanlines crawl instead of sitting still. A static pattern is a texture, a
+// drifting one is a signal. 0 holds them.
+user float wr_scan_crawl = 1.0;

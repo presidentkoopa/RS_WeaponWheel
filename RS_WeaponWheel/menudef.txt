@@ -42,6 +42,15 @@ OptionMenu wr_Options
 	Slider "Card height",               "wr_panel_h",      1.0, 12.0, 0.25, 2
 	Slider "Hovered card steps out",    "wr_pop",          0.0, 6.0, 0.25, 2
 	Slider "Hovered card pulse",        "wr_pulse",        0.0, 0.5, 0.01, 2
+	// Each card aims at your eye instead of all sharing one angle -- the ring
+	// becomes a shallow bowl instead of a flat sheet.
+	Option "Cards face you individually", "wr_facing",     "OnOff"
+	// The artwork slides inside its frame as your head moves.
+	Slider "Face parallax",             "wr_parallax",     0.0, 0.25, 0.01, 2
+	// A few millimetres of rise and fall while it sits there.
+	Slider "Idle breathing",            "wr_idle",         0.0, 2.0, 0.05, 2
+	Slider "  Breathing speed",         "wr_idle_speed",   0.2, 6.0, 0.1, 1
+	Slider "Scanline crawl",            "wr_scan_crawl",   0.0, 4.0, 0.1, 1
 	// 0 makes the ring appear finished, which is how this behaved before the
 	// cards grew out of the wrist.
 	Slider "Cards grow in over (tics)", "wr_growtics",     0, 20, 1, 0
