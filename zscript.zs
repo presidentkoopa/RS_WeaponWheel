@@ -1270,28 +1270,53 @@ class wr_Rig : EventHandler
 			// Bleeding sideways is the good version; bleeding through the top
 			// and bottom takes the whole silhouette away, so height is capped
 			// and the width follows it back down.
-			double hcap = FACE_H * 0.92;
+			// Capped to the artwork band, not the whole canvas: the lower third is
+			// the readouts and a sprite that reaches it is a sprite behind a label.
+			double hcap = READOUT_TOP - PIP_TOP - 4;
 			if (ih > hcap) { ih = hcap; iw = ih * aspect; }
 
-			double ix = (FACE_W - iw) * 0.5;
-			double iy = ICON_TOP + (ICON_BOX_H - ih) * 0.5;
+			// DTA_CENTEROFFSET IS THE WHOLE REASON THE SPRITES WERE MISSING.
+			//
+			// A Doom sprite carries baked-in offsets, and a pickup's put its
+			// origin at the item's FEET -- so the draw position is not the
+			// top-left of the image, it is a point somewhere below and left of
+			// it. Drawing at y=11 with an offset like that puts the entire
+			// sprite off the top of a hundred-pixel canvas, silently, with the
+			// call succeeding.
+			//
+			// Overriding to the texture's middle makes the position mean what it
+			// looks like it means, and lets the same coordinate work for sprites
+			// whose offsets disagree with each other -- which, across a weapon
+			// set, they always do.
+			double cx = FACE_W * 0.5;
+			double cy = ICON_TOP + ICON_BOX_H * 0.5;
 
 			// A dark twin, offset, underneath. Weapon sprites are lit every
 			// which way across a weapon set; a shadow gives all of them the same
 			// weight and lifts them off the plate.
+			//
+			// DTA_AlphaChannel with DTA_FillColor is the pair that gives a
+			// silhouette; DTA_FillColor alone stencils the colour but keeps the
+			// source's own shading, which is not a shadow.
 			if (cv("wr_canvas_shadow", 1.0) > 0.0)
 			{
-				canvas.DrawTexture(icon, true, ix + 3, iy + 3,
+				canvas.DrawTexture(icon, false, cx + 3, cy + 3,
+					DTA_CenterOffset, true,
 					DTA_DestWidth, int(iw), DTA_DestHeight, int(ih),
-					DTA_FillColor, 0x000000, DTA_Alpha, 0.55);
+					DTA_FillColor, 0x000000, DTA_AlphaChannel, true,
+					DTA_Alpha, 0.5);
 			}
 
-			canvas.DrawTexture(icon, true, ix, iy,
+			canvas.DrawTexture(icon, false, cx, cy,
+				DTA_CenterOffset, true,
 				DTA_DestWidth, int(iw), DTA_DestHeight, int(ih));
 		}
 
-		// A band behind the readout, so a bled sprite cannot swallow it.
-		canvas.Dim(0x000000, 0.55, 0, FACE_H - BAR_BOTTOM - 6, FACE_W, BAR_BOTTOM + 6);
+		// A band behind the lower third, where the name and the count are about
+		// to be drawn as billboards. Without it a bled sprite runs straight
+		// under the text and the text becomes unreadable on exactly the weapons
+		// whose artwork works best.
+		canvas.Dim(0x000000, 0.62, 0, READOUT_TOP, FACE_W, FACE_H - READOUT_TOP);
 
 		// AMMO AS PIPS.
 		//
@@ -1321,7 +1346,7 @@ class wr_Rig : EventHandler
 
 			int left  = BAR_INSET;
 			int right = FACE_W - BAR_INSET;
-			int top   = FACE_H - BAR_BOTTOM;
+			int top   = PIP_TOP;
 			int bot   = top + BAR_H;
 
 			int gap = 2;
@@ -2824,11 +2849,25 @@ class wr_Rig : EventHandler
 	const FACE_BANDS  = 5;     // gradient steps
 	const FACE_ACCENT = 6;     // slot stripe height
 	const ICON_BOX_W  = 96.0;
-	const ICON_BOX_H  = 46.0;
-	const ICON_TOP    = 16.0;
-	const BAR_INSET   = 12;
-	const BAR_BOTTOM  = 24;
-	const BAR_H       = 9;
+	const ICON_BOX_H  = 32.0;
+	const ICON_TOP    = 22.0;
+	// CANVAS LAYOUT, top to bottom, and it has to dodge the billboards.
+	//
+	// The name and the segment readout are drawn as separate field billboards
+	// IN FRONT of the canvas, at fixed fractions of the card. So the painted
+	// artwork does not get the whole face -- it gets everything above them, and
+	// anything it puts in the bottom third lands underneath a label.
+	//
+	// Hence pips at the TOP, under the accent, rather than in the natural place
+	// at the bottom: the bottom is spoken for.
+	const PIP_TOP     = 11;
+	const BAR_INSET   = 10;
+	const BAR_H       = 8;
+
+	// Where the label and segment land in canvas pixels, from their billboard
+	// fractions. Kept as constants so the dim band below tracks them instead of
+	// being a number tuned by eye.
+	const READOUT_TOP = 56;
 
 	// At or under this many rounds, one pip means one SHOT. Above it, ten pips
 	// mean tenths -- forty countable rectangles is just a worse bar.
