@@ -138,3 +138,32 @@ user float wr_sweep_bright  = 1.4;
 user float wr_fog           = 0.0;    // density; 0 is off
 user float wr_fog_rise      = 6.0;    // how far above the ring its surface sits
 user float wr_fog_scatter   = 0.8;    // lets the beam light the mist
+
+
+// THE CARDS THEMSELVES
+//
+// Two ways to draw a plate. BB_PANEL stretches one small rounded-rect texture
+// -- cheap, and it blurs when a card is held close. BB_SDFPANEL solves the same
+// rectangle per pixel: crisp at any size, and it can take a halo, which a
+// sampled plate structurally cannot. Off gives you the old look back.
+user bool wr_sdf           = true;
+
+// Only the solved plate reads these. 0-15 each, across the half-extent.
+user int  wr_plate_radius  = 4;    // corner rounding
+user int  wr_plate_border  = 2;    // rim width; 0 is a plain filled plate
+
+
+// THE FLOOR
+//
+// A mark under your feet, repeated around a circle and spinning. One shape
+// slot: the repeat folds the coordinate rather than drawing copies, so eight
+// marks and eight hundred cost the same. Size in map units; 0 is off.
+user float wr_floor        = 0.0;
+user float wr_floor_kind   = 5.0;   // 1 disc 2 ring 3 square 4 outline 5 cross 6 hex 7 triangle
+user float wr_floor_count  = 8.0;   // copies around the circle
+user float wr_floor_space  = 46.0;  // radius of that circle
+user float wr_floor_spin   = 14.0;  // degrees per second
+user float wr_floor_thick  = 0.18;
+user float wr_floor_bright = 1.2;
+// How far each mark splits open down its middle as the rig arrives.
+user float wr_floor_seam   = 0.5;

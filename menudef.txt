@@ -47,6 +47,23 @@ OptionMenu wr_Options
 	// cards grew out of the wrist.
 	Slider "Cards grow in over (tics)", "wr_growtics",     0, 20, 1, 0
 	Option "Ammo counts and gauges",    "wr_ammo",         "OnOff"
+	// Off falls back to the sampled plate: cheaper, blurs up close, and cannot
+	// glow -- a halo needs a distance field to read past the shape's edge.
+	Option "Sharp plates (SDF)",        "wr_sdf",          "OnOff"
+	Slider "Corner rounding",           "wr_plate_radius", 0, 15, 1, 0
+	Slider "Plate border",              "wr_plate_border", 0, 15, 1, 0
+
+	StaticText ""
+	StaticText "The room", gold
+	// All three borrow a single global engine slot each. A co-loaded mod using
+	// the same slot gets it back the moment the rig closes.
+	Option "Laser has dust in it",      "wr_vbeam",        "OnOff"
+	Slider "Opening light sweep (tics)","wr_sweep",        0, 40, 1, 0
+	Slider "Mist density",              "wr_fog",          0.0, 1.0, 0.05, 2
+	// A mark under your feet, repeated around a circle and spinning. 0 is off.
+	Slider "Floor marks (size)",        "wr_floor",        0.0, 40.0, 1.0, 0
+	Slider "Floor mark count",          "wr_floor_count",  1.0, 24.0, 1.0, 0
+	Slider "Floor mark spin",           "wr_floor_spin", -60.0, 60.0, 2.0, 0
 
 	StaticText ""
 	StaticText "Feel", gold

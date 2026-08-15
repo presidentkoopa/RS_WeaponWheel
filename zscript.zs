@@ -114,6 +114,12 @@ class wr_Rig : EventHandler
 	bool mFogHeld;
 	bool mBeamHeld;
 	bool mSweepHeld;
+
+	// Shapes are a slot allocator, not a global slot, so this one is genuinely
+	// ours and -1 means we hold none. Still released explicitly: the allocator
+	// wraps and overwrites rather than refusing when it runs out, so a leaked
+	// slot is a slot somebody else silently loses later.
+	int mShapeSlot;
 	bool mBeamHeld;
 	bool mSweepHeld;
 
@@ -234,6 +240,7 @@ class wr_Rig : EventHandler
 		mHovered   = 0;
 		mHoverTics = 0;
 		mHavePoke  = false;
+		mShapeSlot = -1;
 		mOpenTics  = 0;
 		mLockTics  = int(cv("wr_locktics", 140));
 
@@ -1162,6 +1169,24 @@ class wr_Rig : EventHandler
 		return h / panelH;
 	}
 
+	// Which plate payload the cards are built from, and the shape numbers that
+	// only the solved one reads.
+	private static int plateKind()
+	{
+		return (cv("wr_sdf", 1.0) > 0.0) ? LevelLocals.BB_SDFPANEL
+		                                 : LevelLocals.BB_PANEL;
+	}
+
+	// Corner radius in byte 0, border width in byte 1, each 0-15 across the
+	// half-extent. BB_PANEL ignores it, which is why this can be handed to
+	// both without a branch at every call site.
+	private static int plateShape()
+	{
+		int rad = int(clamp(cv("wr_plate_radius", 4.0), 0.0, 15.0));
+		int bor = int(clamp(cv("wr_plate_border", 2.0), 0.0, 15.0));
+		return rad | (bor << 8);
+	}
+
 	private void spawnPanels()
 	{
 		mIds.Clear();
@@ -1213,9 +1238,21 @@ class wr_Rig : EventHandler
 			         ? COLOR_DRY : COLOR_IDLE;
 			mBaseColor.Push(rest);
 
+			// SAMPLED PLATE OR SOLVED ONE, and the caller picks.
+			//
+			// BB_PANEL stretches one small rounded-rect texture, which is cheap
+			// and blurs when a card is held close in VR. BB_SDFPANEL solves the
+			// same rectangle per pixel: crisp at any size, and it can take a
+			// halo, which a sampled plate structurally cannot -- a glow needs a
+			// distance field to read past the shape's edge and a texture has
+			// none. That is why the label could glow and the card under it
+			// could not.
+			//
+			// Not free. Two distance tests against one texture sample, times
+			// every card, so the switch stays a switch.
 			int plate = level.AddBillboardPersistent(
 				(0, 0, 0), 3.5, 2.5, 0, 0,
-				LevelLocals.BBF_FIXED, LevelLocals.BB_PANEL, 0,
+				LevelLocals.BBF_FIXED, plateKind(), plateShape(),
 				rest, LevelLocals.BBFL_NOHIT, 0, "");
 
 			// A gradient, not a flat swatch. Two colours cost one extra setter
@@ -1624,6 +1661,16 @@ class wr_Rig : EventHandler
 				level.ResizeBillboard(mPlates[i], panelW * pulse, panelH * pulse);
 				level.OrientBillboard(mPlates[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
 				level.RollBillboard(mPlates[i], roll);
+
+				// THE CARD ITSELF GLOWS NOW, not just the name on it.
+				//
+				// This was impossible until the plate became a distance field:
+				// the halo is placed by reading the field OUTSIDE the shape,
+				// and a sampled texture has nothing out there to read. On
+				// BB_PANEL the call is simply ignored, so the switch needs no
+				// branch here.
+				level.SetBillboardGlow(mPlates[i], lit ? GLOW_R * 0.8 : 0.0,
+				                                   lit ? GLOW_S * 0.7 : 0.0);
 			}
 
 			// The slot bar, pinned to the card's top edge.
@@ -1683,6 +1730,15 @@ class wr_Rig : EventHandler
 				                                 panelH * AMMO_H_FRAC * pulse);
 				level.OrientBillboard(mAmmos[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
 				level.RollBillboard(mAmmos[i], roll);
+
+				// THE READOUTS BOOT UP.
+				//
+				// Progress is a reveal on the segment payload, not a value: the
+				// bezel is a hairline slit at 0 that opens vertically, and the
+				// characters do not appear at all until 0.55. Driving it with
+				// the same curve the cards arrive on means each one powers on as
+				// it lands rather than arriving already lit.
+				level.SetBillboardProgress(mAmmos[i], grow);
 			}
 
 			// The fan hangs off whichever card opened it, so it is placed here
@@ -2070,6 +2126,10 @@ class wr_Rig : EventHandler
 	{
 		color tint = hoverColor();
 
+		// The same arrival curve the cards ride, so the room and the ring agree
+		// about when the rig has finished opening.
+		double grow = growFactor();
+
 		// THE LASER GETS AIR IN IT.
 		//
 		// The engine laser is still the pointer -- it does the hit maths and
@@ -2137,6 +2197,46 @@ class wr_Rig : EventHandler
 			mSweepHeld = false;
 		}
 
+		// A MARK ON THE FLOOR UNDER YOU.
+		//
+		// One shape slot, repeated radially. SetShapeRepeat FOLDS THE
+		// COORDINATE rather than drawing N copies -- the engine's own note says
+		// eight and eight hundred cost the same -- so a full ring of marks is
+		// one shape's worth of work. It spins, and its seam splits each mark
+		// down the middle as the rig arrives, which is what ties the floor to
+		// the cards instead of just decorating under them.
+		double floorSize = cv("wr_floor", 0.0);
+		if (floorSize > 0.0)
+		{
+			if (mShapeSlot < 0)
+			{
+				mShapeSlot = level.AddShape(
+					int(cv("wr_floor_kind", 5.0)),   // 5 = cross
+					0,                                // floors only
+					pmo.Pos.X, pmo.Pos.Y, pmo.floorz,
+					floorSize, 0.0, cv("wr_floor_thick", 0.18),
+					tint, cv("wr_floor_bright", 1.2), 0.0);
+			}
+
+			if (mShapeSlot >= 0)
+			{
+				level.MoveShape(mShapeSlot, pmo.Pos.X, pmo.Pos.Y, pmo.floorz);
+				level.SetShapeRepeat(mShapeSlot, 1,
+					cv("wr_floor_count", 8.0),
+					cv("wr_floor_space", 46.0),
+					cv("wr_floor_spin", 14.0));
+
+				// Splits open as the ring does, then holds. seamRate 0 keeps
+				// the caller owning the animation, same as everything else here.
+				level.SetShapeMotion(mShapeSlot, grow * cv("wr_floor_seam", 0.5), 0.0, 0.0);
+			}
+		}
+		else if (mShapeSlot >= 0)
+		{
+			level.RemoveShape(mShapeSlot);
+			mShapeSlot = -1;
+		}
+
 		// MIST THE CARDS SIT IN, off by default.
 		//
 		// This is the one that is genuinely rude: a map or another mod may have
@@ -2168,6 +2268,10 @@ class wr_Rig : EventHandler
 		if (mBeamHeld)  { level.ClearVolumetricBeam(); mBeamHeld = false; }
 		if (mSweepHeld) { level.ClearSweep();          mSweepHeld = false; }
 		if (mFogHeld)   { level.ClearFogSlab();        mFogHeld = false; }
+
+		// RemoveShape, not ClearShapes: ours is one slot out of a shared pool
+		// and clearing the pool would take everyone else's with it.
+		if (mShapeSlot >= 0) { level.RemoveShape(mShapeSlot); mShapeSlot = -1; }
 	}
 
 	private void updateHover(int hit)
