@@ -58,8 +58,12 @@ OptionMenu wr_Options
 
 	StaticText ""
 	StaticText "The room", gold
-	// All three borrow a single global engine slot each. A co-loaded mod using
+	// All four borrow a single global engine slot each. A co-loaded mod using
 	// the same slot gets it back the moment the rig closes.
+	//
+	// The switches live here; the shaping numbers behind each one are a page
+	// down, so turning an effect on does not mean scrolling past nine sliders
+	// that only matter once you have decided you like it.
 	Option "Laser has dust in it",      "wr_vbeam",        "OnOff"
 	Slider "Opening light sweep (tics)","wr_sweep",        0, 40, 1, 0
 	Slider "Mist density",              "wr_fog",          0.0, 1.0, 0.05, 2
@@ -67,6 +71,7 @@ OptionMenu wr_Options
 	Slider "Floor marks (size)",        "wr_floor",        0.0, 40.0, 1.0, 0
 	Slider "Floor mark count",          "wr_floor_count",  1.0, 24.0, 1.0, 0
 	Slider "Floor mark spin",           "wr_floor_spin", -60.0, 60.0, 2.0, 0
+	Submenu "Fine tuning...",           wr_RoomDetail
 
 	StaticText ""
 	StaticText "Feel", gold
@@ -102,6 +107,66 @@ OptionMenu wr_Options
 	StaticText ""
 	StaticText "Troubleshooting", gold
 	Option "Print diagnostics on open", "wr_debug",        "OnOff"
+
+	StaticText ""
+}
+
+// The seven SDF shape kinds, by name rather than by number. wr_floor_kind is a
+// float cvar, so the keys are floats -- an int key silently matches nothing and
+// the option renders blank.
+OptionValue wr_ShapeKinds
+{
+	1.0, "Disc"
+	2.0, "Ring"
+	3.0, "Square"
+	4.0, "Square outline"
+	5.0, "Cross"
+	6.0, "Hexagon"
+	7.0, "Triangle"
+}
+
+// Everything behind the four switches on the main page.
+//
+// Separated because these are the numbers you touch AFTER deciding you want an
+// effect, not while deciding. Nothing here is console-only -- that is the whole
+// point of the page.
+OptionMenu wr_RoomDetail
+{
+	Title "WRIST RIG - ROOM DETAIL"
+
+	StaticText ""
+	StaticText "Laser volume", gold
+	// A raymarched cone laid along the ray the engine laser already points
+	// down. Inner is the hot core, outer where it has faded to nothing.
+	Slider "Core radius",               "wr_vbeam_inner",   0.0, 8.0, 0.1, 1
+	Slider "Outer radius",              "wr_vbeam_outer",   0.5, 20.0, 0.5, 1
+	Slider "Density",                   "wr_vbeam_density", 0.0, 2.0, 0.05, 2
+	// Motes drifting in the beam. 0 is a clean cone.
+	Slider "Dust",                      "wr_vbeam_dust",    0.0, 2.0, 0.05, 2
+
+	StaticText ""
+	StaticText "Opening sweep", gold
+	// Tested per pixel against world position, so it crosses floor, wall and
+	// ceiling as one unbroken line rather than lighting whole sectors.
+	Slider "Travel distance",           "wr_sweep_reach",  40.0, 900.0, 20.0, 0
+	Slider "Brightness",                "wr_sweep_bright",  0.0, 4.0, 0.1, 1
+
+	StaticText ""
+	StaticText "Mist", gold
+	// The slab has a TOP, so this is how far above the ring its surface sits.
+	Slider "Surface height above ring",  "wr_fog_rise",   -20.0, 40.0, 1.0, 0
+	// Lets the laser cone light the mist it passes through.
+	Slider "Scatter",                    "wr_fog_scatter",  0.0, 2.0, 0.05, 2
+
+	StaticText ""
+	StaticText "Floor marks", gold
+	Option "Shape",                      "wr_floor_kind",  "wr_ShapeKinds"
+	Slider "Ring radius",                "wr_floor_space", 10.0, 200.0, 2.0, 0
+	Slider "Line thickness",             "wr_floor_thick",  0.02, 1.0, 0.02, 2
+	Slider "Brightness",                 "wr_floor_bright", 0.0, 4.0, 0.1, 1
+	// Splits each mark down its middle as the ring arrives, showing the under
+	// colour through the gap.
+	Slider "Split open by",              "wr_floor_seam",   0.0, 1.0, 0.05, 2
 
 	StaticText ""
 }
