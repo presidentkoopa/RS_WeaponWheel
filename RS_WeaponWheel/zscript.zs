@@ -85,6 +85,8 @@ class wr_Rig : EventHandler
 	Array<int> mAccents;          // the slot-coloured bar along the card's top
 	Array<int> mGauges;           // BB_BAR: ammo as a proportion
 	Array<int> mFaces;            // one painted canvas texture per card
+	Array<int> mShadows;          // one dark quad behind each card
+	Array<int> mSlotNums;         // the key you would press, on the card it maps to
 	Array<int> mMarks;            // "you already have this", per card
 	Actor      mLight;            // one dynamic light, on the hovered card
 	Array<Actor> mModels;         // a real weapon model per card, when enabled
@@ -437,6 +439,14 @@ class wr_Rig : EventHandler
 		{
 			if (mMarks[i]) level.RemoveBillboard(mMarks[i]);
 		}
+		for (int i = 0; i < mShadows.Size(); ++i)
+		{
+			if (mShadows[i]) level.RemoveBillboard(mShadows[i]);
+		}
+		for (int i = 0; i < mSlotNums.Size(); ++i)
+		{
+			if (mSlotNums[i]) level.RemoveBillboard(mSlotNums[i]);
+		}
 		if (mCentreId)    level.RemoveBillboard(mCentreId);
 		if (mCentreIcon)  level.RemoveBillboard(mCentreIcon);
 		if (mCentreLabel) level.RemoveBillboard(mCentreLabel);
@@ -450,6 +460,8 @@ class wr_Rig : EventHandler
 			if (mGroups[i]) level.RemoveBillboardGroup(mGroups[i]);
 		}
 		mMarks.Clear();
+		mShadows.Clear();
+		mSlotNums.Clear();
 		mGroups.Clear();
 
 		if (mCentreGroup != 0) level.RemoveBillboardGroup(mCentreGroup);
@@ -474,6 +486,8 @@ class wr_Rig : EventHandler
 		mFaces.Clear();
 		mCardX.Clear(); mCardY.Clear(); mCardZ.Clear();
 		mMarks.Clear();
+		mShadows.Clear();
+		mSlotNums.Clear();
 		mBaseColor.Clear();
 		mIconW.Clear();
 		mIconH.Clear();
@@ -824,7 +838,7 @@ class wr_Rig : EventHandler
 			// Measured, like a ring card's. Clones tend to have the LONGEST
 			// names in a set -- "Plasma Rifle" becomes "Plasma Rifle Mk II" --
 			// so the fan is where an unfitted label overflows first.
-			string stag = held.GetTag();
+			string stag = wrapLabel(held.GetTag(), panelWNow() * LABEL_FIT_FRAC, panelHNow());
 			int slid = level.AddBillboardPersistent(
 				(0, 0, 0), 3.5, 2.5, 0, 0,
 				LevelLocals.BBF_FIXED, LevelLocals.BB_TEXT, 0,
@@ -1373,15 +1387,68 @@ class wr_Rig : EventHandler
 	//
 	// Returns 0 from the engine when no SDF atlas is loaded. That means
 	// "estimate it yourself", not "the string is empty", so it is left alone.
+	// BREAK A NAME OVER TWO LINES RATHER THAN SHRINKING IT.
+	//
+	// A long name used to be scaled down until it fitted one line, so "Rocket
+	// Launcher" ended up drawn at half the size of "Fist" on the same ring --
+	// the cards that need reading most became the hardest to read.
+	//
+	// BB_TEXT stacks a string containing '\n' as centred lines by itself, so
+	// this only has to choose WHERE. The split goes at the space nearest the
+	// middle, which keeps two lines of roughly equal length instead of a long
+	// one over a stub.
+	//
+	// One break only. Three lines in a card this size is smaller than the
+	// shrink it was avoiding.
+	private static string wrapLabel(string text, double boxW, double panelH)
+	{
+		double h = panelH * LABEL_HEIGHT_FRAC;
+		if (h <= 0.0) return text;
+
+		double w = level.MeasureBillboardText(text, h, 0);
+
+		// 0 means no SDF atlas is loaded and the measure is unavailable -- that
+		// is "estimate it yourself", not "the string is empty", so leave it be.
+		if (w <= 0.0 || w <= boxW) return text;
+
+		int best = -1;
+		int mid = text.Length() / 2;
+		for (int i = 0; i < text.Length(); ++i)
+		{
+			if (text.ByteAt(i) != 0x20) continue;          // ' '
+			if (best < 0 || abs(i - mid) < abs(best - mid)) best = i;
+		}
+
+		// Nothing to break on. A single long word gets the old shrink, which is
+		// the correct answer for it.
+		if (best <= 0) return text;
+
+		return text.Left(best) .. "\n" .. text.Mid(best + 1);
+	}
+
 	private static double fitLabel(string text, double boxW, double panelH)
 	{
 		double h = panelH * LABEL_HEIGHT_FRAC;
 		if (h <= 0.0) return LABEL_HEIGHT_FRAC;
 
+		// MeasureBillboardText reports the WIDEST line of a wrapped string, so
+		// this works unchanged on one line or two -- which is the whole reason
+		// wrapLabel can hand its result straight here.
 		double w = level.MeasureBillboardText(text, h, 0);
 		if (w <= 0.0) return LABEL_HEIGHT_FRAC;
 
 		if (w > boxW) h *= boxW / w;
+
+		// A two-line name is drawn at LINE height but occupies two of them, so
+		// its box has to be told that or the second line runs off the card.
+		// MeasureBillboardTextBlock is the only thing that knows the line pitch
+		// -- it is the renderer's rule, not a constant to multiply by.
+		if (text.IndexOf("\n") >= 0)
+		{
+			Vector2 blk = level.MeasureBillboardTextBlock(text, h, 0);
+			if (blk.Y > 0.0) return blk.Y / panelH;
+		}
+
 		return h / panelH;
 	}
 
@@ -1772,6 +1839,26 @@ class wr_Rig : EventHandler
 			//
 			// Not free. Two distance tests against one texture sample, times
 			// every card, so the switch stays a switch.
+			// A SHADOW BEHIND THE CARD.
+			//
+			// Not decoration -- a legibility fix. The ring floats in front of
+			// whatever the room happens to be, and a dark plate against a dark
+			// brick wall has almost no edge. One offset black quad behind each
+			// card separates it from ANY background, however busy, without
+			// having to know anything about the background.
+			//
+			// Behind everything else on the card and slightly larger, so it
+			// reads as the card's own shadow rather than as a border.
+			int shad = 0;
+			if (cv("wr_shadow", 0.5) > 0.0)
+			{
+				shad = level.AddBillboardPersistent(
+					(0, 0, 0), 3.5, 2.5, 0, 0,
+					LevelLocals.BBF_FIXED, plateKind(), plateShape(),
+					0x000000, LevelLocals.BBFL_NOHIT, 0, "");
+			}
+			mShadows.Push(shad);
+
 			int plate = level.AddBillboardPersistent(
 				(0, 0, 0), 3.5, 2.5, 0, 0,
 				LevelLocals.BBF_FIXED, plateKind(), plateShape(),
@@ -1799,7 +1886,7 @@ class wr_Rig : EventHandler
 			// billboard, and the label sits in front of the panel it belongs to.
 			// Without it every reach would come back holding a word, and the
 			// panel behind it would be permanently unreachable.
-			string tag = GetDefaultByType(mTypes[i]).GetTag();
+			string tag = wrapLabel(GetDefaultByType(mTypes[i]).GetTag(), panelW * LABEL_FIT_FRAC, panelH);
 			int lid = level.AddBillboardPersistent(
 				(0, 0, 0), 3.5, 2.5, 0, 0,
 				LevelLocals.BBF_FIXED, LevelLocals.BB_TEXT, 0,
@@ -1915,6 +2002,26 @@ class wr_Rig : EventHandler
 			}
 			mMarks.Push(mid);
 
+			// THE SLOT NUMBER, in the corner opposite the marker.
+			//
+			// The ring's bearings are fixed per slot precisely so it can be
+			// learned by feel, and this is the same promise written down: the
+			// number you would press on the keyboard, on the card it maps to.
+			// It also survives the flatten -- with fans off, several cards share
+			// a slot and the digit is the only thing that still says so.
+			//
+			// BB_DIGITS rather than BB_TEXT: it takes the value in `data` and
+			// needs no string, which is the entire payload for a single number.
+			int nid = 0;
+			if (cv("wr_slotnum", 1.0) > 0.0 && mCardSlots[i] > 0)
+			{
+				nid = level.AddBillboardPersistent(
+					(0, 0, 0), 0.8, 0.8, 0, 0,
+					LevelLocals.BBF_FIXED, LevelLocals.BB_DIGITS, mCardSlots[i],
+					COLOR_SLOTNUM, LevelLocals.BBFL_NOHIT, 0, "");
+			}
+			mSlotNums.Push(nid);
+
 			// The same number as a proportion, which is the reading you actually
 			// take at a glance. "148" needs parsing; a bar that is nearly gone
 			// does not. BB_BAR's data is a fill PERCENT, 0..100, and it grows
@@ -1952,6 +2059,8 @@ class wr_Rig : EventHandler
 			if (gid != 0) level.SetBillboardGroup(gid, grp);
 			if (fid != 0) level.SetBillboardGroup(fid, grp);
 			if (mid != 0) level.SetBillboardGroup(mid, grp);
+			if (shad != 0) level.SetBillboardGroup(shad, grp);
+			if (nid != 0) level.SetBillboardGroup(nid, grp);
 			if (aid != 0) level.SetBillboardGroup(aid, grp);
 			mCardX.Push(0); mCardY.Push(0); mCardZ.Push(0);
 			mGroups.Push(grp);
@@ -2261,6 +2370,38 @@ class wr_Rig : EventHandler
 			double cardAlpha = 1.0;
 			if (mHovered != 0 && !lit) cardAlpha = clamp(cv("wr_dim", 0.55), 0.05, 1.0);
 
+			// The shadow sits BEHIND the plate -- pushed away from the viewer
+			// rather than toward them -- and offset down and to the side so it
+			// reads as cast rather than as an outline. Larger than the card by
+			// the same amount it is offset, so it shows on every edge.
+			if (i < mShadows.Size() && mShadows[i] != 0)
+			{
+				double so = cv("wr_shadow_offset", 0.35) * cv("wr_scale", 1.0);
+
+				level.MoveBillboard(mShadows[i],
+					pos - lift * 0.6 + viewRight * so - (0, 0, so));
+				level.ResizeBillboard(mShadows[i], panelW * pulse * 1.06,
+				                                   panelH * pulse * 1.06);
+				level.OrientBillboard(mShadows[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+				level.RollBillboard(mShadows[i], roll);
+				level.SetBillboardAlpha(mShadows[i],
+					clamp(cv("wr_shadow", 0.5), 0.0, 1.0) * cardAlpha);
+			}
+
+			// Bottom-left, opposite the held marker, so the two never collide.
+			if (i < mSlotNums.Size() && mSlotNums[i] != 0)
+			{
+				level.MoveBillboard(mSlotNums[i],
+					pos + lift * 1.5
+					    - viewRight * (panelW * 0.40 * pulse)
+					    + (0, 0, panelH * 0.34 * pulse));
+				level.ResizeBillboard(mSlotNums[i], panelW * 0.11 * pulse,
+				                                    panelH * 0.15 * pulse);
+				level.OrientBillboard(mSlotNums[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+				level.RollBillboard(mSlotNums[i], roll);
+			}
+
+			if (i < mSlotNums.Size()) fade(mSlotNums[i], cardAlpha);
 			if (i < mPlates.Size())  fade(mPlates[i], cardAlpha);
 			if (i < mFaces.Size())   fade(mFaces[i], cardAlpha);
 			if (i < mAccents.Size()) fade(mAccents[i], cardAlpha);
@@ -3588,6 +3729,10 @@ class wr_Rig : EventHandler
 	// clone -- and the dim one just says "you are already holding this".
 	const COLOR_MARK_MINE  = 0x6E7684;
 	const COLOR_MARK_OTHER = 0xEFC94C;
+
+	// Dim on purpose: a reference you glance at, never a thing competing with
+	// the weapon name for attention.
+	const COLOR_SLOTNUM = 0x5F6874;
 
 	// Billboards render 1.2x taller than authored -- world Z is stretched by the
 	// view matrix and the billboard path never unstretches it.

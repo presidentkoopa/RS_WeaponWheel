@@ -93,6 +93,10 @@ OptionMenu wr_Options
 	Option "Fan out crowded slots",     "wr_subcards",     "OnOff"
 	Slider "Unhovered cards fade to",   "wr_dim",          0.05, 1.0, 0.05, 2
 	Option "Mark weapons you hold",     "wr_marker",       "OnOff"
+	Option "Slot number on cards",      "wr_slotnum",      "OnOff"
+	// Separates a card from a busy wall without knowing anything about the wall.
+	Slider "Card shadow",               "wr_shadow",       0.0, 1.0, 0.05, 2
+	Slider "  Shadow offset",           "wr_shadow_offset", 0.0, 1.5, 0.05, 2
 	Option "Ammo readout",              "wr_readout",     "wr_Readouts"
 	// ONE light, on the hovered card only -- eight would be eight overlapping
 	// volumes lighting the same wall.

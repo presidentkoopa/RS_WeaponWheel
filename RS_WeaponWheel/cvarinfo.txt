@@ -287,3 +287,16 @@ user bool wr_subcards = true;
 user bool  wr_models      = false;
 user float wr_model_scale = 0.16;
 user float wr_model_lift  = 3.0;
+
+
+// A dark quad behind each card. Not decoration -- the ring floats in front of
+// whatever the room happens to be, and a dark plate on a dark wall has almost
+// no edge. This separates a card from ANY background without knowing anything
+// about it. 0 is off.
+user float wr_shadow        = 0.5;
+user float wr_shadow_offset = 0.35;
+
+// The slot number in the card's corner: the key you would press, on the card it
+// maps to. Also the only thing that still says which slot a card belongs to
+// once wr_subcards is off and several share one.
+user bool  wr_slotnum = true;
