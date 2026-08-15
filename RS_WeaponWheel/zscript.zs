@@ -3056,14 +3056,25 @@ class wr_Rig : EventHandler
 			let a = Actor.Spawn(mTypes[i], pmo.Pos, NO_REPLACE);
 			if (a == null) { mModels.Push(null); continue; }
 
+			// bSpecial is the one that matters: an Inventory actor in the world
+			// is picked up on touch, and a prop that vanishes into your backpack
+			// when you reach for its card is worse than no prop.
 			a.bSpecial      = false;
-			a.bNoBlockmap   = true;
 			a.bNoGravity    = true;
 			a.bNoTonAutomap = true;
-			a.bThruActors   = true;
-			a.bCountItem    = false;
-			a.bNoTrigger    = true;
 			a.Vel           = (0, 0, 0);
+
+			// NOT a.bNoBlockmap = true. That field is only writable from inside
+			// Actor, because changing it has to unlink the actor from the world
+			// and link it back -- setting it from outside would leave the
+			// blockmap holding a stale entry. A_ChangeLinkFlags is the mechanism
+			// that does both halves.
+			//
+			// Once it is out of the blockmap nothing can collide with it or even
+			// test against it, which is why the thru-actors and no-trigger flags
+			// that were here as well are gone: they were guarding against
+			// contact that can no longer happen.
+			a.A_ChangeLinkFlags(1);
 
 			a.Scale = (sc, sc);
 			a.SetStateLabel('Spawn');
