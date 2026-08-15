@@ -1229,48 +1229,127 @@ class wr_Rig : EventHandler
 		// makes on the composed card.
 		canvas.Clear(0, 0, FACE_W, FACE_ACCENT, slotColor(slot));
 
-		// The pickup sprite, fitted to its own shape rather than stretched. In
-		// canvas space this is honest pixels -- no billboard stretch to undo.
+		// THE GUN RUNS OFF THE EDGES.
+		//
+		// This is the one thing the billboard path cannot do at all. A billboard
+		// has no clip -- a quad draws its whole texture -- so the composed card
+		// can only ever SHRINK a sprite until it fits inside a box, which is why
+		// every icon there sits politely in the middle looking like a catalogue
+		// photo. A canvas crops. Draw the shotgun at 130% and its stock and
+		// muzzle leave the card, and it reads as a weapon rather than a picture
+		// of one.
 		TextureID icon = iconFor(held);
 		if (icon.IsValid())
 		{
 			Vector2 sz = TexMan.GetScaledSize(icon);
-			double iw = ICON_BOX_W, ih = ICON_BOX_H;
+			double aspect = (sz.X > 0 && sz.Y > 0) ? (sz.X / sz.Y) : 1.6;
 
-			if (sz.X > 0 && sz.Y > 0)
+			double bleed = clamp(cv("wr_canvas_bleed", 1.30), 0.6, 2.5);
+			double iw = FACE_W * bleed;
+			double ih = iw / aspect;
+
+			// Bleeding sideways is the good version; bleeding through the top
+			// and bottom takes the whole silhouette away, so height is capped
+			// and the width follows it back down.
+			double hcap = FACE_H * 0.92;
+			if (ih > hcap) { ih = hcap; iw = ih * aspect; }
+
+			double ix = (FACE_W - iw) * 0.5;
+			double iy = ICON_TOP + (ICON_BOX_H - ih) * 0.5;
+
+			// A dark twin, offset, underneath. Weapon sprites are lit every
+			// which way across a weapon set; a shadow gives all of them the same
+			// weight and lifts them off the plate.
+			if (cv("wr_canvas_shadow", 1.0) > 0.0)
 			{
-				double aspect = sz.X / sz.Y;
-				iw = ICON_BOX_W;
-				ih = iw / aspect;
-				if (ih > ICON_BOX_H) { ih = ICON_BOX_H; iw = ih * aspect; }
+				canvas.DrawTexture(icon, true, ix + 3, iy + 3,
+					DTA_DestWidth, int(iw), DTA_DestHeight, int(ih),
+					DTA_FillColor, 0x000000, DTA_Alpha, 0.55);
 			}
 
-			canvas.DrawTexture(icon, true,
-				(FACE_W - iw) * 0.5, ICON_TOP + (ICON_BOX_H - ih) * 0.5,
+			canvas.DrawTexture(icon, true, ix, iy,
 				DTA_DestWidth, int(iw), DTA_DestHeight, int(ih));
 		}
 
-		// The gauge, as a track and a fill. Two Clears rather than a primitive,
-		// which is exactly what BB_BAR does in the renderer.
+		// A band behind the readout, so a bled sprite cannot swallow it.
+		canvas.Dim(0x000000, 0.55, 0, FACE_H - BAR_BOTTOM - 6, FACE_W, BAR_BOTTOM + 6);
+
+		// AMMO AS PIPS.
+		//
+		// A bar answers "how full"; pips answer "how many", and for a shotgun
+		// with four shells left that is the question you are actually asking. A
+		// count of twelve or under gets one pip per ROUND -- literally the shots
+		// you have. Above that it falls to ten pips as tenths, because forty
+		// individually countable rectangles is just a worse bar.
+		int rounds = ammoLeft(held);
 		double frac = ammoFrac(held);
+
 		if (cv("wr_ammo", 1.0) > 0.0 && frac >= 0.0)
 		{
+			int lit, total;
+			if (rounds >= 0 && rounds <= PIP_LITERAL_MAX)
+			{
+				total = max(rounds, 1);
+				let capped = ammoCap(held);
+				if (capped > 0 && capped <= PIP_LITERAL_MAX) total = capped;
+				lit = rounds;
+			}
+			else
+			{
+				total = PIP_TENTHS;
+				lit = int(frac * PIP_TENTHS + 0.5);
+			}
+
 			int left  = BAR_INSET;
 			int right = FACE_W - BAR_INSET;
 			int top   = FACE_H - BAR_BOTTOM;
 			int bot   = top + BAR_H;
 
-			canvas.Clear(left, top, right, bot, dim(slotColor(slot), 0.22));
+			int gap = 2;
+			int pipW = max(2, ((right - left) - gap * (total - 1)) / max(total, 1));
 
-			int fill = left + int((right - left) * frac + 0.5);
-			if (fill > left) canvas.Clear(left, top, fill, bot, slotColor(slot));
+			for (int p = 0; p < total; ++p)
+			{
+				int x0 = left + p * (pipW + gap);
+				int x1 = x0 + pipW;
+				if (x1 > right) break;
+
+				canvas.Clear(x0, top, x1, bot,
+					(p < lit) ? slotColor(slot) : dim(slotColor(slot), 0.18));
+			}
 		}
+
+		// SCANLINES, over everything.
+		//
+		// One dimmed row every three. It is the cheapest possible trick and it
+		// does more than any of the above to stop the face reading as a picture
+		// pasted on a card and start it reading as a lit display.
+		double scan = cv("wr_canvas_scan", 0.22);
+		if (scan > 0.0)
+		{
+			for (int y = 0; y < FACE_H; y += 3)
+			{
+				canvas.Dim(0x000000, scan, 0, y, FACE_W, 1);
+			}
+		}
+
+		// The slot's colour as a corner chevron as well as the top stripe, so
+		// the ring is eight distinguishable SHAPES and not only eight hues --
+		// which is what survives being in the corner of your eye.
+		canvas.DrawThickLine(-4, 26, 30, -8, 9, slotColor(slot), 255);
 
 		// A hairline round the outside, so the artwork has an edge even when the
 		// plate behind it is switched off.
 		canvas.DrawLineFrame(dim(slotColor(slot), 0.45), 0, 0, FACE_W, FACE_H);
 
 		return TexMan.CheckForTexture(name, TexMan.Type_Any);
+	}
+
+	// Magazine size, for deciding whether pips can be literal.
+	private static int ammoCap(Weapon w)
+	{
+		if (w == null || w.Ammo1 == null) return -1;
+		return w.Ammo1.MaxAmount;
 	}
 
 	// Scale a colour's channels without touching its alpha. Canvas.Clear wants
@@ -2707,9 +2786,14 @@ class wr_Rig : EventHandler
 	const ICON_BOX_W  = 96.0;
 	const ICON_BOX_H  = 46.0;
 	const ICON_TOP    = 16.0;
-	const BAR_INSET   = 16;
-	const BAR_BOTTOM  = 26;
-	const BAR_H       = 7;
+	const BAR_INSET   = 12;
+	const BAR_BOTTOM  = 24;
+	const BAR_H       = 9;
+
+	// At or under this many rounds, one pip means one SHOT. Above it, ten pips
+	// mean tenths -- forty countable rectangles is just a worse bar.
+	const PIP_LITERAL_MAX = 12;
+	const PIP_TENTHS      = 10;
 
 	// The box an icon is fitted into, as a fraction of the card.
 	const ICON_W_FRAC = 0.72;

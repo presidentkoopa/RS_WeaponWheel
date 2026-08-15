@@ -55,6 +55,10 @@ OptionMenu wr_Options
 	// coordinates instead of assembled from billboards in map units. Both work.
 	// A raster, so it shows its pixels up close where the field payloads do not.
 	Option "Painted card faces",        "wr_canvas",       "OnOff"
+	// Above 1 the sprite crops at the card edge, which no billboard can do.
+	Slider "  Sprite bleed",            "wr_canvas_bleed",  0.6, 2.5, 0.05, 2
+	Option "  Sprite shadow",           "wr_canvas_shadow", "OnOff"
+	Slider "  Scanlines",               "wr_canvas_scan",   0.0, 0.8, 0.02, 2
 
 	StaticText ""
 	StaticText "The room", gold

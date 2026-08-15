@@ -182,3 +182,16 @@ user float wr_floor_seam   = 0.5;
 // than breaking. Painted once on open; nothing on a card changes while the
 // ring is up.
 user bool wr_canvas = false;
+
+// How far the weapon sprite runs off the card, as a multiple of card width.
+// 1.0 fits it inside; above that it crops, which is the thing a billboard
+// cannot do at all -- a quad draws its whole texture, so the composed card can
+// only ever shrink a sprite until it fits.
+user float wr_canvas_bleed  = 1.30;
+
+// A dark offset twin under the sprite. Weapon art is lit every which way
+// across a weapon set; a shadow gives all of it the same weight.
+user bool  wr_canvas_shadow = true;
+
+// One dimmed row every three, over the whole face. 0 is off.
+user float wr_canvas_scan   = 0.22;
