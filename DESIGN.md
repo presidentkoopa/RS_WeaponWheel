@@ -126,9 +126,18 @@ which hand. Deliberately narrow — it reports only the failures you cannot see.
 Not built. Recorded because the machinery is already most of the way there and
 the hard part is not the part that looks hard.
 
-**The idea.** A horizontal row of cards along the firing line, set back from the
-muzzle and riding above it — a rail on the forearm holding consumables rather
-than weapons. Grenades, throwables, stimpacks, keys.
+**The idea.** You turn your off hand toward your face at about chest height —
+the gesture you make to check a watch — and a row of cards unrolls along that
+forearm, sitting *behind* your weapon so it never occludes what you are aiming
+at. Consumables rather than weapons: grenades, throwables, stimpacks, keys.
+Chosen by looking at one, or by reaching across with the main hand.
+
+**The gesture is the feature.** It is not a bind, and that is the point. Rolling
+your wrist to look at your arm is a thing people already do, it costs no button,
+and it cannot fire by accident during a fight the way a held key can. The rig
+already reads wrist roll — `handRollOf` exists and `wr_roll` uses it — so the
+trigger is a roll threshold plus a rough check that the forearm is pointing at
+the head, both of which are one dot product away from data the mod already has.
 
 **Most of this mod transfers untouched.** The plates, canvas faces, readouts,
 sounds, haptics, the group grow-in and fold-away, the hover glow, the dim, the
@@ -141,24 +150,24 @@ change:
   `pmo.Inv`, and `UseInventory(item)` instead of the equip path. Ammo readouts
   become stack counts.
 
-**The hard part is selection, and it is worth solving before writing any of the
-above.** Cards laid along the firing line are collinear with the laser that
-comes off that same hand — the beam runs under or through the whole row and
-"nearest hit" answers every time. Three ways out, and they are not equal:
+**Selection is solved by where the rail is, and that is worth noticing.** The
+first sketch of this put the cards along the firing line, which is the obvious
+place and the wrong one: they end up collinear with the laser from that same
+hand, so the beam runs the length of the row and "nearest hit" answers every
+time. Putting the rail on the OFF forearm and turning it toward your face
+removes the problem instead of working around it — the row is now broadside to
+you and off the firing axis entirely.
 
-1. **Wrist pitch scans the rail.** The row is above the beam, so tilting the
-   hand up sweeps across it and back down leaves it. One hand, no extra bind,
-   and the gesture is close to racking a slide. Needs a deadzone or every recoil
-   nudge selects a grenade.
-2. **The other hand picks it off your arm.** The rail rides one forearm and the
-   free hand points at it. This is the most natural thing on the list — it is
-   what reaching for a pouch actually is — and it costs nothing to implement,
-   because pointing with the other hand is already what `mPokeHand` does.
-3. **Thumbstick steps along it.** Works, says nothing, and the stick is already
-   claimed while the ring is open.
+That leaves two ways in, and they should both exist:
 
-(2) is the strongest and (1) is the one that keeps a hand free. Both are worth
-having; neither should be chosen by whoever writes the code first.
+- **Reach across with the main hand.** Costs nothing: pointing with the other
+  hand is already what `mPokeHand` does, and both the beam and the reach-in test
+  work unchanged.
+- **Look at one.** `AimBillboard` from the eye along the view vector is the same
+  call the hand already makes with a different origin. Cheap, and it is the only
+  option that needs neither hand — which matters when both are full.
+
+Gaze wants a dwell before it commits, or looking past a card picks it.
 
 **Not body holsters.** Those were considered early and rejected: reaching to an
 unseen point on your own torso has no feedback and no way to be learned. A
