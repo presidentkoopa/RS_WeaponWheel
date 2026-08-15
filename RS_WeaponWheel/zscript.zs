@@ -2159,16 +2159,25 @@ class wr_Rig : EventHandler
 				statText(canvas, STATS_VALX, y, f[2],
 					cursed ? COLOR_CURSE : 0xFFD8DEE9);
 
-				// "was 68", small and dim, right after the current value. The
-				// whole point of a wound is the distance from what it was.
+				// A "was" value is drawn ONLY if a provider sends one, and
+				// RS_Main deliberately never does.
+				//
+				// A curse is supposed to hide what a stat is worth until you
+				// pay to lift it -- that is the whole reason lifting costs
+				// gold. Printing what it used to be gives the answer away just
+				// as surely as printing the current number, since the curse
+				// halves. The field stays in the contract for providers whose
+				// curses are not a gamble; ours leaves it empty.
 				if (cursed && wasVal.Length() > 0)
 					statText(canvas, STATS_VALX + 42, y + 3, "was " .. wasVal,
 					         dim(COLOR_CURSE, 0.75), 0.72);
 
 				// The bar, and its two tones. Dim is what the weapon rolled;
-				// bright is what it has earned since. A cursed row is outlined
-				// in crimson with the missing part hatched, so a wound looks
-				// like one before any number is read.
+				// bright is what it has earned since.
+				//
+				// fill below zero means NO BAR, and that is a real answer
+				// rather than missing data: a cursed stat sends it, because a
+				// bar is the number drawn sideways.
 				double fill   = f[4].ToDouble();
 				double earned = (f.Size() >= 6) ? f[5].ToDouble() : 0.0;
 
@@ -2189,38 +2198,37 @@ class wr_Rig : EventHandler
 						sClear(canvas, bx + solid - gain, by, bx + solid, by + STATS_BARH, c);
 
 					if (cursed)
-					{
-						// THE MISSING PART IS HATCHED, not just outlined.
-						//
-						// An outline says "something is different about this
-						// row". Diagonal marks across the gap say "this much was
-						// TAKEN", which is the thing worth showing -- the reader
-						// should see a wound without comparing two numbers.
-						//
-						// Drawn as short strokes rather than a pattern fill,
-						// because a canvas has no pattern brush.
-						for (int hx = bx + solid; hx < bx + bw; hx += 5)
-						{
-							canvas.DrawThickLine(hx, sfy(by),
-							                     min(hx + 4, bx + bw), sfy(by + STATS_BARH),
-							                     1.5, COLOR_CURSE, 190);
-						}
-
 						canvas.DrawLineFrame(COLOR_CURSE, bx, sfy(by + STATS_BARH), bw, STATS_BARH);
+				}
 
-						// One pip per stack, under the bar. Countable, and the
-						// same vocabulary the cards use for ammo.
-						for (int s = 0; s < min(stacks, 6); ++s)
-							sClear(canvas, bx + s * 9, by + STATS_BARH + 2,
-							       bx + s * 9 + 6, by + STATS_BARH + 5, COLOR_CURSE);
+				// THE CURSE MARKS LIVE OUTSIDE THE BAR, because a cursed row
+				// usually has no bar at all.
+				//
+				// A bar IS the number. Drawing one for a hidden stat leaks
+				// exactly what the curse conceals, which is why a provider
+				// sends fill -1 for a cursed row and why the hatched "this much
+				// was taken" gap that used to be here is gone -- it was a
+				// picture of the missing value, which is the same leak wearing
+				// a different hat.
+				if (cursed)
+				{
+					int bx = STATS_BARX;
+					int bw = STATS_W - STATS_PAD - bx;
+					int by = y + 2;
 
-						// What the next clean lift pays. A deep curse is a wound
-						// AND a stored reward, and only saying the first half
-						// makes it look like a dead loss.
-						if (bonus > 0)
-							statText(canvas, bx + bw - 34, y + 1,
-							         String.Format("+%d%%", bonus), 0xFFE8A93E, 0.72);
-					}
+					// One pip per stack. Countable, the same vocabulary the
+					// cards use for ammo -- and it leaks nothing, because how
+					// DEEP a curse runs says nothing about the value under it.
+					for (int st = 0; st < min(stacks, 6); ++st)
+						sClear(canvas, bx + st * 9, by + 2,
+						       bx + st * 9 + 6, by + 5, COLOR_CURSE);
+
+					// What a clean lift pays back. Safe to show for the same
+					// reason, and it is the half that makes a curse worth
+					// spending gold on rather than a dead loss.
+					if (bonus > 0)
+						statText(canvas, bx + bw - 34, y + 1,
+						         String.Format("+%d%%", bonus), 0xFFE8A93E, 0.72);
 				}
 
 				y += rowH;
