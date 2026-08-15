@@ -1,0 +1,51 @@
+AddOptionMenu OptionsMenu       { Submenu "Wrist Rig", wr_Options }
+AddOptionMenu OptionsMenuSimple { Submenu "Wrist Rig", wr_Options }
+
+OptionMenu wr_Options
+{
+	Title "WRIST RIG"
+
+	StaticText ""
+	StaticText "Behaviour", gold
+	Option "Open at level start",       "wr_autoopen",     "OnOff"
+	Slider "Seconds before it folds",   "wr_locktics",     35, 700, 35, 0
+	Slider "Held weapon shrinks to",    "wr_weaponshrink", 0.2, 1.0, 0.05, 2
+
+	StaticText ""
+	StaticText "Size", gold
+	Slider "Overall scale",             "wr_scale",        0.3, 3.0, 0.05, 2
+
+	StaticText ""
+	StaticText "Placement", gold
+	// Every one of these is live -- open the rig and drag a slider and the next
+	// tic has it. That is the whole reason they are sliders and not constants.
+	Slider "Ring distance ahead",       "wr_forward",      5.0, 120.0, 1.0, 0
+	Slider "Ring radius",               "wr_radius",       1.0, 40.0, 0.5, 1
+	Slider "Height above hand",         "wr_rise",        -8.0, 12.0, 0.5, 1
+	Slider "Lean toward you",           "wr_tilt",       -30.0, 30.0, 1.0, 0
+
+	StaticText ""
+	StaticText "Cards", gold
+	Slider "Card width",                "wr_panel_w",      1.0, 12.0, 0.25, 2
+	Slider "Card height",               "wr_panel_h",      1.0, 12.0, 0.25, 2
+	Slider "Hovered card steps out",    "wr_pop",          0.0, 6.0, 0.25, 2
+	Slider "Hovered card pulse",        "wr_pulse",        0.0, 0.5, 0.01, 2
+
+	StaticText ""
+	StaticText "Reach", gold
+	// Depth tolerance more than reach: how far in front of or behind the grid
+	// your hand may sit and still register.
+	Slider "Touch radius",              "wr_touch",        1.0, 20.0, 0.5, 1
+	Slider "Stick deadzone",            "wr_stickdead",    500, 10000, 250, 0
+
+	StaticText ""
+	StaticText "Integration", gold
+	Option "Slow time while open (BulletTimeX)", "wr_bullettime", "OnOff"
+
+	StaticText ""
+	StaticText "Controls", gold
+	Control "Off hand wheel",           "wr_toggle_off"
+	Control "Main hand wheel",          "wr_toggle_main"
+
+	StaticText ""
+}

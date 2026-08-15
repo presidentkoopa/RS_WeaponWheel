@@ -1,0 +1,132 @@
+// All live -- change them with the rig open and the next tic picks them up.
+//
+// SCALE: vr_vunits_per_meter is 34, so one map unit is about 3cm. Every default
+// below is written as a real-world distance first and converted, because the
+// first pass at this used flat-screen numbers and put the cards a metre off
+// each side of the hand.
+
+// Panel face size. 3.5 x 2.5 units is about 10cm x 7cm -- a playing card.
+user float wr_panel_w  = 3.5;
+user float wr_panel_h  = 2.5;
+
+// How far the panels orbit out from the hand, and how high above it they ride.
+// 7 units is about 20cm: far enough to read, close enough to reach without
+// moving your arm.
+user float wr_radius   = 5.0;
+user float wr_rise     = 2.0;
+
+// Total arc the panels occupy, in degrees, however many there are. They pack
+// closer together as you collect more rather than the arc growing past your
+// reach. 360 makes a full bracelet.
+user float wr_span     = 140.0;
+
+// Where that arc sits on the ring. 0 puts its centre over the top of the wrist;
+// negative swings it toward you, positive away.
+user float wr_phase    = 180.0;
+
+// Leans the tops toward you.
+user float wr_tilt     = 12.0;
+
+// Touch radius, and it is DEPTH tolerance more than reach. The grid is a flat
+// plane; this is how far your hand may sit in front of or behind it and still
+// count. Small values mean a perfectly aimed hand misses because it drifted a
+// few centimetres forward. Nearest-hit resolves any overlap, so generous is
+// free. 7 units is about 20cm.
+user float wr_touch    = 7.0;
+
+// Open the rig automatically when a level starts. On while iterating; turn it
+// off once it is bound to something you actually want to press.
+user bool  wr_autoopen = true;
+
+// How much wrist roll spins the fan. 0 ignores it, 1 follows it exactly.
+user float wr_roll     = 0.0;
+
+// How fast the formation catches up to your hand, per tic. 1 welds it on and
+// there is nothing to grab; low numbers make it drift lazily behind. This is
+// the feel dial for the whole mechanic.
+user float wr_follow   = 0.18;  // unused: the grid is frozen on open
+
+// Which generation of the defaults above this config has seen.
+//
+// user cvars are ARCHIVED: once your config holds wr_radius 30, editing the
+// default here can never reach you again -- the saved value wins forever. So
+// the mod stamps a version, and when it ships new geometry it rewrites the
+// values once and bumps the stamp. Your own tuning survives everything after
+// that, because the stamp only moves when the mod's numbers change.
+user int   wr_cfgver   = 0;
+
+
+// How far the hovered card steps toward your eye, in map units.
+user float wr_pop      = 1.5;
+
+// Tics the rig stays up with nothing hovered before folding away. 35 = 1 second.
+// Hovering a card resets it.
+user int   wr_locktics = 140;
+
+// How much the held weapon shrinks while the rig is open. 1 leaves it alone.
+user float wr_weaponshrink = 0.5;
+
+// Master size. Grows distance, card size and reach together, so "make it
+// bigger" stays one thought instead of four sliders.
+user float wr_scale    = 1.0;
+
+// Cursor gain. Hand movement away from where the rig opened is multiplied by
+// this before it is tested against the cards, so a few inches of hand covers a
+// ring you would otherwise have to reach across. 1 disables it.
+
+// Sprite the held weapon is swapped to while the rig is open. PUNG is Doom's
+// fist. Display only -- the weapon itself is untouched.
+user string wr_fistsprite = "PUNG";
+
+// Weapon class borrowed for the open-hand look. Its model and sprite are what
+// the rig hand shows while the cards are up.
+user string wr_fistclass = "WR_Hand";
+
+// Slow time while the wheel is up, via BulletTimeX if it is loaded. Its
+// activate is a toggle, so turning this on means opening the wheel during a
+// bullet time you started yourself will cancel it.
+user bool  wr_bullettime = true;
+
+// How far the stick must leave centre before it picks a slot. UserCmd units:
+// a walk is about 6400.
+user float wr_stickdead  = 3000.0;
+
+
+// How much the hovered card breathes. 0 holds it still.
+user float wr_pulse      = 0.10;
+
+// How far in front of your hand the ring floats, along where you were aiming
+// when it opened. 34 units is about a metre. This is the number that decides
+// how far you have to turn to cross the ring: further away means a smaller
+// sweep, because the whole thing subtends less.
+user float wr_forward  = 34.0;
+
+
+// FEEL
+//
+// The rig is worn where you cannot comfortably look at it, so the ear and the
+// wrist do most of the work of telling you what is happening. These are the
+// dials for that.
+
+// Menu clicks on hover, expand, confirm and dismiss. The engine's own menu
+// sound aliases, so they match whichever game is loaded.
+user bool  wr_sound    = true;
+user float wr_volume   = 0.65;
+
+// Controller rumble, as a multiplier on what the rig asks for. 0 is silent
+// hands. vr_enable_haptics still overrules this, so turning haptics off in the
+// engine cannot be undone by a mod.
+user float wr_haptics  = 1.0;
+
+// Tics the cards take to grow out of your wrist to the ring. 0 makes them
+// appear finished, which is how this used to behave.
+user float wr_growtics = 6.0;
+
+// Print the ammo each weapon has left under its name, and rest a card that has
+// none in a colour that says so.
+user bool  wr_ammo     = true;
+
+// Diagnostics on the console when the rig opens. Off: these fired on every
+// single summon, and a line of console for something that worked is noise.
+user bool  wr_debug    = false;
+

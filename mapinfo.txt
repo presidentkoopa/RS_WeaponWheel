@@ -1,0 +1,5 @@
+GameInfo
+{
+	AddEventHandlers = "wr_Rig"
+	AddPlayerClasses = "WR_TestPlayer"
+}
