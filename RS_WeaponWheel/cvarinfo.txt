@@ -233,3 +233,27 @@ user float wr_wave       = 0.0;
 user float wr_wave_len   = 120.0;
 user float wr_wave_speed = 1.6;
 user float wr_wave_sharp = 1.4;
+
+
+// CARDS, ONE MORE PASS
+
+// How far the cards you are NOT pointing at fade back. 1 is no dimming.
+// Only applies once something is hovered -- fading the whole ring the moment it
+// opens would look like it failed to load.
+user float wr_dim = 0.55;
+
+// One dynamic light, on the hovered card, in that slot's colour, breathing on
+// the same pulse the card does. ONE, not one per card: lights cost per light
+// per surface they touch, and only one card is ever the answer to "which".
+user bool  wr_light      = true;
+user float wr_light_size = 44.0;
+
+// A corner mark on a weapon one of your hands already holds. Informational
+// only -- the card stays selectable, because picking your other hand's gun
+// swaps them or finds a free clone, which is a reasonable thing to ask for.
+user bool  wr_marker = true;
+
+// Which payload draws the ammo bezel.
+//   0 LED segment, 1 LCD (punched out of a lit plate), 2 lozenge badge
+// Pick by which reads better against the room, not which is more correct.
+user int   wr_readout = 0;

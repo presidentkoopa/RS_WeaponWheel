@@ -84,6 +84,8 @@ class wr_Rig : EventHandler
 	Array<int> mAccents;          // the slot-coloured bar along the card's top
 	Array<int> mGauges;           // BB_BAR: ammo as a proportion
 	Array<int> mFaces;            // one painted canvas texture per card
+	Array<int> mMarks;            // "you already have this", per card
+	Actor      mLight;            // one dynamic light, on the hovered card
 
 	// ONE GROUP PER CARD, so a card is an object rather than six loose quads.
 	//
@@ -409,6 +411,10 @@ class wr_Rig : EventHandler
 		{
 			if (mFaces[i]) level.RemoveBillboard(mFaces[i]);
 		}
+		for (int i = 0; i < mMarks.Size(); ++i)
+		{
+			if (mMarks[i]) level.RemoveBillboard(mMarks[i]);
+		}
 		if (mCentreId)    level.RemoveBillboard(mCentreId);
 		if (mCentreIcon)  level.RemoveBillboard(mCentreIcon);
 		if (mCentreLabel) level.RemoveBillboard(mCentreLabel);
@@ -421,6 +427,7 @@ class wr_Rig : EventHandler
 		{
 			if (mGroups[i]) level.RemoveBillboardGroup(mGroups[i]);
 		}
+		mMarks.Clear();
 		mGroups.Clear();
 
 		if (mCentreGroup != 0) level.RemoveBillboardGroup(mCentreGroup);
@@ -444,6 +451,7 @@ class wr_Rig : EventHandler
 		mGauges.Clear();
 		mFaces.Clear();
 		mCardPos.Clear();
+		mMarks.Clear();
 		mBaseColor.Clear();
 		mIconW.Clear();
 		mIconH.Clear();
@@ -1611,12 +1619,35 @@ class wr_Rig : EventHandler
 			int rounds = ammoLeft(held);
 			if (cv("wr_ammo", 1.0) > 0.0 && rounds >= 0)
 			{
+				// WG13 reads its number from `data`; the other two read `text`.
+				// Passing both costs nothing and means the payload can be
+				// switched at spawn without a branch here.
 				aid = level.AddBillboardPersistent(
 					(0, 0, 0), 3.5, 2.5, 0, 0,
-					LevelLocals.BBF_FIXED, LevelLocals.BB_SEGMENT, 0,
+					LevelLocals.BBF_FIXED, readoutKind(), rounds,
 					rounds > 0 ? COLOR_AMMO : COLOR_AMMO_DRY,
 					LevelLocals.BBFL_NOHIT, 0, String.Format("%d", rounds));
 			}
+
+			// THE MARKER, and it does not lock anything.
+			//
+			// Two states worth telling apart: this weapon is in the hand you are
+			// pointing WITH, or it is in your other one. The second is the
+			// interesting case -- taking it swaps the hands, or finds a free _2
+			// clone -- so it gets the brighter mark. Neither stops the card
+			// being selected, because in both cases picking it is a reasonable
+			// thing to ask for.
+			int where = heldWhere(mTypes[i]);
+			int mid = 0;
+			if (where != 0 && cv("wr_marker", 1.0) > 0.0)
+			{
+				mid = level.AddBillboardPersistent(
+					(0, 0, 0), 0.6, 0.6, 0, 0,
+					LevelLocals.BBF_FIXED, plateKind(), 15,
+					(where == 2) ? COLOR_MARK_OTHER : COLOR_MARK_MINE,
+					LevelLocals.BBFL_NOHIT, 0, "");
+			}
+			mMarks.Push(mid);
 
 			// The same number as a proportion, which is the reading you actually
 			// take at a glance. "148" needs parsing; a bar that is nearly gone
@@ -1654,6 +1685,7 @@ class wr_Rig : EventHandler
 			if (iid != 0) level.SetBillboardGroup(iid, grp);
 			if (gid != 0) level.SetBillboardGroup(gid, grp);
 			if (fid != 0) level.SetBillboardGroup(fid, grp);
+			if (mid != 0) level.SetBillboardGroup(mid, grp);
 			if (aid != 0) level.SetBillboardGroup(aid, grp);
 			mCardPos.Push((0, 0, 0));
 			mGroups.Push(grp);
@@ -1907,6 +1939,37 @@ class wr_Rig : EventHandler
 			}
 
 			if (i < mCardPos.Size()) mCardPos[i] = pos;
+
+			// FOCUS. Cards you are not pointing at step back.
+			//
+			// Only once something IS hovered -- dimming the whole ring the
+			// moment it opens would make it look like it failed to load. Eight
+			// cards competing equally for your eye is the problem; seven quiet
+			// ones and a lit one is the fix, and it costs one alpha per card.
+			double cardAlpha = 1.0;
+			if (mHovered != 0 && !lit) cardAlpha = clamp(cv("wr_dim", 0.55), 0.05, 1.0);
+
+			fade(mIds.Size() > i ? mPlates[i] : 0, cardAlpha);
+			if (i < mFaces.Size())   fade(mFaces[i], cardAlpha);
+			if (i < mAccents.Size()) fade(mAccents[i], cardAlpha);
+			if (i < mIcons.Size())   fade(mIcons[i], cardAlpha);
+			if (i < mGauges.Size())  fade(mGauges[i], cardAlpha);
+			if (i < mLabels.Size())  fade(mLabels[i], cardAlpha);
+			if (i < mAmmos.Size())   fade(mAmmos[i], cardAlpha);
+			if (i < mMarks.Size())   fade(mMarks[i], cardAlpha);
+
+			// The held-weapon mark, pinned to the card's top-right corner.
+			if (i < mMarks.Size() && mMarks[i] != 0)
+			{
+				level.MoveBillboard(mMarks[i],
+					pos + lift * 1.5
+					    + viewRight * (panelW * 0.40 * pulse)
+					    + (0, 0, panelH * 0.34 * pulse));
+				level.ResizeBillboard(mMarks[i], panelW * 0.10 * pulse,
+				                                 panelH * 0.13 * pulse);
+				level.OrientBillboard(mMarks[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+				level.RollBillboard(mMarks[i], roll);
+			}
 
 			// The group carries the whole card's origin, so scale happens about
 			// the card's own centre rather than about the world origin.
@@ -2310,6 +2373,7 @@ class wr_Rig : EventHandler
 		level.SetVRLaserRange(hit != 0 ? reach : 0);
 
 		decor(pmo, org, dir, reach, hit != 0);
+		cardLight(pmo);
 
 
 		// Committing is driven from InputProcess instead, so the fire press can
@@ -2615,7 +2679,65 @@ class wr_Rig : EventHandler
 		// RemoveShape, not ClearShapes: ours is one slot out of a shared pool
 		// and clearing the pool would take everyone else's with it.
 		if (mShapeSlot >= 0) { level.RemoveShape(mShapeSlot); mShapeSlot = -1; }
+		if (mLight != null)  { mLight.Destroy(); mLight = null; }
 		if (mWaveHeld)  { level.SetGlowWave(0.0, 0.0, 0.0, 0); mWaveHeld = false; }
+	}
+
+	// Which payload the ammo bezel is drawn with.
+	//
+	//   0  BB_SEGMENT -- dark bed, glowing segments. An LED.
+	//   1  BB_SEGLCD  -- lit plate with the characters punched out dark. An LCD.
+	//   2  BB_WG13    -- GITD's lozenge badge, digits knocked out of the plate.
+	//
+	// Pick by which reads better against the room rather than by which is more
+	// correct: LED wins in the dark, LCD wins against a bright wall.
+	private static int readoutKind()
+	{
+		switch (int(cv("wr_readout", 0.0)))
+		{
+			case 1:  return LevelLocals.BB_SEGLCD;
+			case 2:  return LevelLocals.BB_WG13;
+			default: return LevelLocals.BB_SEGMENT;
+		}
+	}
+
+	// WG13 is DIGITS ONLY -- it takes its number in `data`, not as text -- and
+	// it wants a lozenge, not a circle. The original's rule is halfH 46 with
+	// halfW = halfH * (0.60 + digits * 0.42); this is that ratio, so a
+	// three-digit count gets a wider badge than a one-digit one instead of both
+	// being stretched into the same box.
+	private static double readoutAspect(int rounds)
+	{
+		if (readoutKind() != LevelLocals.BB_WG13) return AMMO_W_FRAC;
+
+		int digits = 1;
+		if (rounds >= 10)  digits = 2;
+		if (rounds >= 100) digits = 3;
+
+		return AMMO_H_FRAC * CARD_STRETCH * (0.60 + digits * 0.42) * 2.0;
+	}
+
+	// Which hand, if any, already has this weapon.
+	//
+	//   0  nobody
+	//   1  this hand -- taking it changes nothing
+	//   2  the other hand -- taking it swaps, or finds a free clone
+	//
+	// Informational ONLY. The card stays fully selectable in both cases: the
+	// whole point of the swap and the _2 lookup is that picking your other
+	// hand's gun is a reasonable thing to ask for, and a marker that greyed it
+	// out would be undoing that.
+	private int heldWhere(Class<Weapon> type) const
+	{
+		if (type == null) return 0;
+
+		let mine  = (mRigHand == 1) ? players[consoleplayer].OffhandWeapon
+		                            : players[consoleplayer].ReadyWeapon;
+		let other = otherHandWeapon();
+
+		if (mine  != null && mine.GetClass()  == type) return 1;
+		if (other != null && other.GetClass() == type) return 2;
+		return 0;
 	}
 
 	// What colour the burst comes out.
@@ -2698,6 +2820,58 @@ class wr_Rig : EventHandler
 
 			level.SpawnParticle(p);
 		}
+	}
+
+	// Guarded so a zero handle is a no-op rather than a call into nothing --
+	// half these billboards are optional and the caller should not have to know
+	// which ones this time.
+	private void fade(int id, double alpha)
+	{
+		if (id != 0) level.SetBillboardAlpha(id, alpha);
+	}
+
+	// ONE LIGHT, ON THE CARD YOU ARE POINTING AT.
+	//
+	// Not one per card, and that is the optimisation that matters: dynamic
+	// lights cost per light per surface they touch, so eight of them sitting in
+	// a ring a metre from your face is eight overlapping volumes lighting the
+	// same wall. Only one card is ever the answer to "which", so only one card
+	// needs to say so.
+	//
+	// The colour is the slot's, so the light, the card, the beam and the burst
+	// all agree -- and the radius breathes on the same pulse the card does, so
+	// the room brightens and settles with it rather than being a lamp that
+	// switched on.
+	private void cardLight(PlayerPawn pmo)
+	{
+		bool want = cv("wr_light", 1.0) > 0.0 && mHovered != 0;
+
+		int card = cardIndexOf(mHovered);
+		if (card < 0 || card >= mCardPos.Size()) want = false;
+
+		if (!want)
+		{
+			if (mLight != null) { mLight.Destroy(); mLight = null; }
+			return;
+		}
+
+		if (mLight == null)
+		{
+			mLight = Actor(Actor.Spawn("WR_CardLight", mCardPos[card], NO_REPLACE));
+			if (mLight == null) return;
+		}
+
+		mLight.SetOrigin(mCardPos[card], true);
+
+		double breathe = 1.0 + 0.12 * sin(mHoverTics * PULSE_SPEED);
+		int r1 = int(cv("wr_light_size", 44.0) * breathe);
+
+		// Re-attached under the same id every tic, which is how the colour and
+		// radius change at all -- A_AttachLight replaces a light with a matching
+		// id rather than stacking a second one on top.
+		mLight.A_AttachLight('wrcard', DynamicLight.PointLight,
+			slotColor(mCardSlots[card]), r1, int(r1 * 0.35),
+			DynamicLight.LF_ATTENUATE);
 	}
 
 	private void updateHover(int hit)
@@ -3004,6 +3178,12 @@ class wr_Rig : EventHandler
 	const COLOR_AMMO     = 0x8C97A8;
 	const COLOR_AMMO_DRY = 0xC65C5C;
 
+	// The held-weapon mark. The OTHER hand gets the brighter one: that is the
+	// case where taking the card actually does something -- a swap, or a free
+	// clone -- and the dim one just says "you are already holding this".
+	const COLOR_MARK_MINE  = 0x6E7684;
+	const COLOR_MARK_OTHER = 0xEFC94C;
+
 	// Billboards render 1.2x taller than authored -- world Z is stretched by the
 	// view matrix and the billboard path never unstretches it.
 	const CARD_STRETCH = 1.2;
@@ -3102,3 +3282,29 @@ class WR_TestPlayer : DoomPlayer
 	}
 }
 
+
+// Carrier for the hovered card's light.
+//
+// An actor only because A_AttachLight is an actor method -- there is no way to
+// hang a dynamic light on a billboard, which is what this actually wants to be.
+// Nothing about it participates in the world: no collision, no gravity, no
+// thinking, nothing drawn.
+class WR_CardLight : Actor
+{
+	Default
+	{
+		+NOINTERACTION;
+		+NOBLOCKMAP;
+		+NOGRAVITY;
+		+NOTONAUTOMAP;
+		+DONTSPLASH;
+		RenderStyle "None";
+	}
+
+	States
+	{
+	Spawn:
+		TNT1 A -1;
+		Stop;
+	}
+}

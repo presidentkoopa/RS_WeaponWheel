@@ -83,6 +83,14 @@ OptionMenu wr_Options
 	Slider "Room glow ripple",          "wr_wave",         0.0, 3.0, 0.1, 1
 	Submenu "Fine tuning...",           wr_RoomDetail
 
+	Slider "Unhovered cards fade to",   "wr_dim",          0.05, 1.0, 0.05, 2
+	Option "Mark weapons you hold",     "wr_marker",       "OnOff"
+	Option "Ammo readout",              "wr_readout",     "wr_Readouts"
+	// ONE light, on the hovered card only -- eight would be eight overlapping
+	// volumes lighting the same wall.
+	Option "Hovered card lights room",  "wr_light",        "OnOff"
+	Slider "  Light size",              "wr_light_size",   8.0, 160.0, 4.0, 0
+
 	StaticText ""
 	StaticText "Taking a weapon", gold
 	Slider "Sparks",                    "wr_sparks",       0.0, 80.0, 2.0, 0
@@ -205,4 +213,13 @@ OptionValue wr_SparkColors
 	0, "Slot colour"
 	1, "White hot"
 	2, "Rainbow"
+}
+
+// LED first because it is the one that survives a dark room, which is where
+// this thing mostly gets used.
+OptionValue wr_Readouts
+{
+	0, "LED segments"
+	1, "LCD, punched out"
+	2, "Lozenge badge"
 }
