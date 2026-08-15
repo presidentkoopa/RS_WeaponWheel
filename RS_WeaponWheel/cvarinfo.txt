@@ -6,8 +6,8 @@
 // each side of the hand.
 
 // Panel face size. 3.5 x 2.5 units is about 10cm x 7cm -- a playing card.
-user float wr_panel_w  = 3.5;
-user float wr_panel_h  = 2.5;
+user float wr_panel_w  = 4.2;
+user float wr_panel_h  = 3.0;
 
 // How far the panels orbit out from the hand, and how high above it they ride.
 // 7 units is about 20cm: far enough to read, close enough to reach without

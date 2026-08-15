@@ -565,15 +565,18 @@ class wr_Rig : EventHandler
 
 	// Geometry generation. Bump this whenever the numbers below change and every
 	// existing config picks them up once, automatically.
-	const CFG_VERSION = 17;
+	const CFG_VERSION = 18;
 
 	private void migrateConfig()
 	{
 		let stamp = CVar.GetCVar("wr_cfgver", players[consoleplayer]);
 		if (stamp == null || stamp.GetInt() >= CFG_VERSION) return;
 
-		setCv("wr_panel_w", 3.5);
-		setCv("wr_panel_h", 2.5);
+		// Gen 18: bigger cards. Text readability in a headset is an ABSOLUTE
+		// size problem -- a two-line name on a small card is small however the
+		// fractions are tuned, because the card itself is the ceiling.
+		setCv("wr_panel_w", 4.2);
+		setCv("wr_panel_h", 3.0);
 		setCv("wr_radius",  5.0);
 		setCv("wr_rise",    2.0);
 		// wr_span, wr_phase and wr_follow were migrated here until the layout
@@ -1065,7 +1068,7 @@ class wr_Rig : EventHandler
 			{
 				bool slit = (mSubIds[i] == mHovered);
 
-				level.MoveBillboard(mSubLabels[i], pos + lift - (0, 0, panelH * 0.13));
+				level.MoveBillboard(mSubLabels[i], pos + lift - (0, 0, panelH * 0.07));
 				level.ResizeBillboard(mSubLabels[i], panelW,
 				                                     panelH * mSubLabelH[i]);
 				level.OrientBillboard(mSubLabels[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
@@ -1080,7 +1083,7 @@ class wr_Rig : EventHandler
 
 			if (i < mSubAmmos.Size() && mSubAmmos[i] != 0)
 			{
-				level.MoveBillboard(mSubAmmos[i], pos + lift - (0, 0, panelH * 0.37));
+				level.MoveBillboard(mSubAmmos[i], pos + lift - (0, 0, panelH * 0.41));
 				level.ResizeBillboard(mSubAmmos[i], panelW * mSubAmmoW[i],
 				                                    panelH * AMMO_H_FRAC);
 				level.OrientBillboard(mSubAmmos[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
@@ -1533,8 +1536,8 @@ class wr_Rig : EventHandler
 	// only the solved one reads.
 	// The live card size, for the places that need it OUTSIDE layout() -- the
 	// label fitter runs at spawn, before layout has computed anything.
-	private static double panelWNow() { return cv("wr_panel_w", 3.5) * cv("wr_scale", 1.0); }
-	private static double panelHNow() { return cv("wr_panel_h", 2.5) * cv("wr_scale", 1.0); }
+	private static double panelWNow() { return cv("wr_panel_w", 4.2) * cv("wr_scale", 1.0); }
+	private static double panelHNow() { return cv("wr_panel_h", 3.0) * cv("wr_scale", 1.0); }
 
 	private static int plateKind()
 	{
@@ -1893,8 +1896,8 @@ class wr_Rig : EventHandler
 		mLabelH.Clear();
 		mAmmoW.Clear();
 
-		double panelW = cv("wr_panel_w", 3.5) * cv("wr_scale", 1.0);
-		double panelH = cv("wr_panel_h", 2.5) * cv("wr_scale", 1.0);
+		double panelW = cv("wr_panel_w", 4.2) * cv("wr_scale", 1.0);
+		double panelH = cv("wr_panel_h", 3.0) * cv("wr_scale", 1.0);
 
 		for (int i = 0; i < mTypes.Size(); ++i)
 		{
@@ -2264,12 +2267,12 @@ class wr_Rig : EventHandler
 		double radius = cv("wr_radius",   5.0);
 		double rise   = cv("wr_rise",     2.0);
 		double tilt   = cv("wr_tilt",    12.0);
-		double panelW = cv("wr_panel_w",  8.0);
-		double panelH = cv("wr_panel_h",  6.0);
+		double panelW = cv("wr_panel_w",  4.2);
+		double panelH = cv("wr_panel_h",  3.0);
 
 		if (radius < 0.5) radius = 5.0;
-		if (panelW < 0.5) panelW = 8.0;
-		if (panelH < 0.5) panelH = 6.0;
+		if (panelW < 0.5) panelW = 4.2;
+		if (panelH < 0.5) panelH = 3.0;
 
 		radius *= sc;
 		rise   *= sc;
@@ -2661,7 +2664,7 @@ class wr_Rig : EventHandler
 
 			if (i < mLabels.Size())
 			{
-				level.MoveBillboard(mLabels[i], pos + lift - (0, 0, panelH * 0.13 * pulse));
+				level.MoveBillboard(mLabels[i], pos + lift - (0, 0, panelH * 0.07 * pulse));
 				// Height measured at spawn against this card's width, so a long
 				// name is drawn smaller instead of running off both edges.
 				level.ResizeBillboard(mLabels[i], panelW * pulse,
@@ -2689,7 +2692,7 @@ class wr_Rig : EventHandler
 			// The count, in its own lit bezel at the bottom of the card.
 			if (i < mAmmos.Size() && mAmmos[i] != 0)
 			{
-				level.MoveBillboard(mAmmos[i], pos + lift - (0, 0, panelH * 0.37 * pulse));
+				level.MoveBillboard(mAmmos[i], pos + lift - (0, 0, panelH * 0.41 * pulse));
 				level.ResizeBillboard(mAmmos[i], panelW * mAmmoW[i] * pulse,
 				                                 panelH * AMMO_H_FRAC * pulse);
 				level.OrientBillboard(mAmmos[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
@@ -3888,7 +3891,7 @@ class wr_Rig : EventHandler
 	// Two lines should be slightly smaller per line than one, because there are
 	// two of them; they should not be half. 0.46 leaves them within about ten
 	// percent of a single-line name.
-	const LABEL_BLOCK_FRAC  = 0.46;
+	const LABEL_BLOCK_FRAC  = 0.52;
 
 	// A card with nothing left in it. Dark red rather than grey: grey reads as
 	// disabled, and this weapon is not disabled -- you can absolutely select it,
@@ -3952,7 +3955,7 @@ class wr_Rig : EventHandler
 	// The dim band has to start high enough to sit behind a TWO-LINE name, not
 	// just a one-line one -- otherwise the top line of a wrapped name lands on
 	// undimmed artwork and loses its contrast exactly where it got bigger.
-	const READOUT_TOP = 44;
+	const READOUT_TOP = 32;
 
 	// At or under this many rounds, one pip means one SHOT. Above it, ten pips
 	// mean tenths -- forty countable rectangles is just a worse bar.
