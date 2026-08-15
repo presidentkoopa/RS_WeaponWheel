@@ -118,3 +118,48 @@ to get wrong.
 `wr_debug` prints one line naming what actually got built: card count, which
 plate payload is live, canvas faces painted against wanted, icons resolved, and
 which hand. Deliberately narrow — it reports only the failures you cannot see.
+
+---
+
+## Later: a forearm holster rail
+
+Not built. Recorded because the machinery is already most of the way there and
+the hard part is not the part that looks hard.
+
+**The idea.** A horizontal row of cards along the firing line, set back from the
+muzzle and riding above it — a rail on the forearm holding consumables rather
+than weapons. Grenades, throwables, stimpacks, keys.
+
+**Most of this mod transfers untouched.** The plates, canvas faces, readouts,
+sounds, haptics, the group grow-in and fold-away, the hover glow, the dim, the
+shadow — none of that knows or cares that it is showing a weapon. Two things
+change:
+
+- **Layout.** A rail instead of a ring: positions along the aim vector rather
+  than around it. Smaller than `bearingForIndex`, not larger.
+- **Contents and commit.** `Inventory` items with `bInvBar` set, walked from
+  `pmo.Inv`, and `UseInventory(item)` instead of the equip path. Ammo readouts
+  become stack counts.
+
+**The hard part is selection, and it is worth solving before writing any of the
+above.** Cards laid along the firing line are collinear with the laser that
+comes off that same hand — the beam runs under or through the whole row and
+"nearest hit" answers every time. Three ways out, and they are not equal:
+
+1. **Wrist pitch scans the rail.** The row is above the beam, so tilting the
+   hand up sweeps across it and back down leaves it. One hand, no extra bind,
+   and the gesture is close to racking a slide. Needs a deadzone or every recoil
+   nudge selects a grenade.
+2. **The other hand picks it off your arm.** The rail rides one forearm and the
+   free hand points at it. This is the most natural thing on the list — it is
+   what reaching for a pouch actually is — and it costs nothing to implement,
+   because pointing with the other hand is already what `mPokeHand` does.
+3. **Thumbstick steps along it.** Works, says nothing, and the stick is already
+   claimed while the ring is open.
+
+(2) is the strongest and (1) is the one that keeps a hand free. Both are worth
+having; neither should be chosen by whoever writes the code first.
+
+**Not body holsters.** Those were considered early and rejected: reaching to an
+unseen point on your own torso has no feedback and no way to be learned. A
+forearm rail is in front of you, visible, and can say what it is holding.
