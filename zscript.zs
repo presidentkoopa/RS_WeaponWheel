@@ -586,8 +586,9 @@ class wr_Rig : EventHandler
 		setCv("wr_panel_h", 2.5);
 		setCv("wr_radius",  5.0);
 		setCv("wr_rise",    2.0);
-		setCv("wr_span",  140.0);
-		setCv("wr_phase", 180.0);
+		// wr_span, wr_phase and wr_follow were migrated here until the layout
+		// moved from an arc to fixed bearings. Nothing reads them now and the
+		// cvars are gone; an archived value left in someone's config is inert.
 		setCv("wr_tilt",   12.0);
 		setCv("wr_touch",   7.0);
 		setCv("wr_forward", 34.0);
@@ -1496,8 +1497,7 @@ class wr_Rig : EventHandler
 			mHaveAnchor = true;
 		}
 
-		Vector3 wrist   = mAnchor;
-		double  handYaw = mAnchorYaw;
+		Vector3 wrist = mAnchor;
 
 		// Every one of these is guarded. GetCVar returns null for a cvar the
 		// config has never seen, and calling GetFloat on that aborts the VM --
@@ -1512,8 +1512,6 @@ class wr_Rig : EventHandler
 
 		double radius = cv("wr_radius",   5.0);
 		double rise   = cv("wr_rise",     2.0);
-		double span   = cv("wr_span",   140.0);
-		double phase  = cv("wr_phase",    0.0);
 		double tilt   = cv("wr_tilt",    12.0);
 		double panelW = cv("wr_panel_w",  8.0);
 		double panelH = cv("wr_panel_h",  6.0);
@@ -1533,23 +1531,22 @@ class wr_Rig : EventHandler
 		// unusable: it centres the arc straight up from your hand, which puts
 		// half the panels over your head and the rest behind your arm.
 		//
-		// Wrist ROLL survives from that attempt, as a rotation of the fan within
-		// its own plane. Twisting your wrist spins the panels past your hand,
+		// Wrist ROLL survives from that attempt, as a rotation of the ring within
+		// its own plane. Twisting your wrist spins the cards past your hand,
 		// which is the one part of arm tracking that helps rather than hinders.
-		// Roll is OFF by default. A tracked controller reports roll of ninety
-		// degrees or more just from how you hold it, and feeding that straight
-		// into the arc's start angle swings the whole fan behind you -- which
-		// looks exactly like the rig failing to open. wr_roll scales it in.
+		//
+		// It had been dead for a while: it fed the old arc's start angle, and
+		// when the layout moved to fixed bearings the arc maths was left behind
+		// computing values nothing read. It is added to the BEARING now, which
+		// is where it always belonged -- one term, and the whole ring turns.
+		//
+		// OFF by default, and that is not timidity. A tracked controller reports
+		// roll of ninety degrees or more just from how you hold it, so feeding
+		// it in raw swings the ring somewhere behind you and looks exactly like
+		// the rig failing to open.
 		double handRoll = handRollOf(pmo, mRigHand) * cv("wr_roll", 0.0);
 
-		// Fixed SPAN, not fixed spacing. Fixed spacing meant every weapon you
-		// picked up widened the arc, so nine of them wrapped 240 degrees and half
-		// the rig ended up somewhere you could neither see nor reach. A span
-		// divides instead: the arc always occupies the same reachable wedge and
-		// the panels pack closer together as you collect more.
 		int n = mIds.Size();
-		double step  = (n > 1) ? (span / (n - 1)) : 0;
-		double first = handYaw + phase + handRoll - span * 0.5;
 
 		// A GRID, not an arc.
 		//
@@ -1628,7 +1625,7 @@ class wr_Rig : EventHandler
 			// west. Cards you do not own still consume their place, so a slot's
 			// direction never changes as you pick things up -- which is the whole
 			// reason this can be learned by feel.
-			double bearing = bearingForIndex(i, ringCount);
+			double bearing = bearingForIndex(i, ringCount) + handRoll;
 
 			Vector3 pos = wrist
 			            + viewRight * (cos(bearing) * ringR)

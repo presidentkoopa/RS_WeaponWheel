@@ -1,3 +1,13 @@
+// Its own page, not an addition to the engine's.
+//
+// The native VR wheel has a full options page of its own under vr_wheel_*, and
+// this is a different system rather than a skin on that one -- different
+// layout, different selection, different equip path. Sharing a page would mean
+// two sets of sliders that look interchangeable and are not.
+//
+// Added to BOTH option menus: OptionsMenuSimple is what a lot of people
+// actually browse, and a mod that only appears in the full one is a mod half
+// its users never find.
 AddOptionMenu OptionsMenu       { Submenu "Wrist Rig", wr_Options }
 AddOptionMenu OptionsMenuSimple { Submenu "Wrist Rig", wr_Options }
 
@@ -23,6 +33,9 @@ OptionMenu wr_Options
 	Slider "Ring radius",               "wr_radius",       1.0, 40.0, 0.5, 1
 	Slider "Height above hand",         "wr_rise",        -8.0, 12.0, 0.5, 1
 	Slider "Lean toward you",           "wr_tilt",       -30.0, 30.0, 1.0, 0
+	// Off by default: a tracked controller reports ninety degrees of roll just
+	// from how you hold it, so raw wrist roll swings the ring behind you.
+	Slider "Wrist roll spins the ring", "wr_roll",         0.0, 1.0, 0.05, 2
 
 	StaticText ""
 	StaticText "Cards", gold
@@ -30,6 +43,20 @@ OptionMenu wr_Options
 	Slider "Card height",               "wr_panel_h",      1.0, 12.0, 0.25, 2
 	Slider "Hovered card steps out",    "wr_pop",          0.0, 6.0, 0.25, 2
 	Slider "Hovered card pulse",        "wr_pulse",        0.0, 0.5, 0.01, 2
+	// 0 makes the ring appear finished, which is how this behaved before the
+	// cards grew out of the wrist.
+	Slider "Cards grow in over (tics)", "wr_growtics",     0, 20, 1, 0
+	Option "Ammo counts and gauges",    "wr_ammo",         "OnOff"
+
+	StaticText ""
+	StaticText "Feel", gold
+	// The rig is worn where you cannot comfortably look at it, so the ear and
+	// the wrist do most of the work of saying what just happened.
+	Option "Sound",                     "wr_sound",        "OnOff"
+	Slider "Volume",                    "wr_volume",       0.0, 1.0, 0.05, 2
+	// vr_enable_haptics still overrules this, so turning rumble off in the
+	// engine cannot be undone from here.
+	Slider "Controller rumble",         "wr_haptics",      0.0, 2.0, 0.1, 1
 
 	StaticText ""
 	StaticText "Reach", gold
@@ -44,8 +71,15 @@ OptionMenu wr_Options
 
 	StaticText ""
 	StaticText "Controls", gold
+	// Whichever hand you summon it on is the hand that wears it, points at it,
+	// and receives what you pick -- so the bind already says which hand you
+	// meant and there is no handedness setting to get wrong.
 	Control "Off hand wheel",           "wr_toggle_off"
 	Control "Main hand wheel",          "wr_toggle_main"
+
+	StaticText ""
+	StaticText "Troubleshooting", gold
+	Option "Print diagnostics on open", "wr_debug",        "OnOff"
 
 	StaticText ""
 }

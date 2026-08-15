@@ -15,15 +15,6 @@ user float wr_panel_h  = 2.5;
 user float wr_radius   = 5.0;
 user float wr_rise     = 2.0;
 
-// Total arc the panels occupy, in degrees, however many there are. They pack
-// closer together as you collect more rather than the arc growing past your
-// reach. 360 makes a full bracelet.
-user float wr_span     = 140.0;
-
-// Where that arc sits on the ring. 0 puts its centre over the top of the wrist;
-// negative swings it toward you, positive away.
-user float wr_phase    = 180.0;
-
 // Leans the tops toward you.
 user float wr_tilt     = 12.0;
 
@@ -40,11 +31,6 @@ user bool  wr_autoopen = true;
 
 // How much wrist roll spins the fan. 0 ignores it, 1 follows it exactly.
 user float wr_roll     = 0.0;
-
-// How fast the formation catches up to your hand, per tic. 1 welds it on and
-// there is nothing to grab; low numbers make it drift lazily behind. This is
-// the feel dial for the whole mechanic.
-user float wr_follow   = 0.18;  // unused: the grid is frozen on open
 
 // Which generation of the defaults above this config has seen.
 //
@@ -69,10 +55,6 @@ user float wr_weaponshrink = 0.5;
 // Master size. Grows distance, card size and reach together, so "make it
 // bigger" stays one thought instead of four sliders.
 user float wr_scale    = 1.0;
-
-// Cursor gain. Hand movement away from where the rig opened is multiplied by
-// this before it is tested against the cards, so a few inches of hand covers a
-// ring you would otherwise have to reach across. 1 disables it.
 
 // Sprite the held weapon is swapped to while the rig is open. PUNG is Doom's
 // fist. Display only -- the weapon itself is untouched.
@@ -108,8 +90,8 @@ user float wr_forward  = 34.0;
 // wrist do most of the work of telling you what is happening. These are the
 // dials for that.
 
-// Menu clicks on hover, expand, confirm and dismiss. The engine's own menu
-// sound aliases, so they match whichever game is loaded.
+// Menu clicks on hover, expand, confirm and dismiss. The rig ships its own --
+// see sndinfo.txt.
 user bool  wr_sound    = true;
 user float wr_volume   = 0.65;
 
