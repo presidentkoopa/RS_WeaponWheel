@@ -120,8 +120,6 @@ class wr_Rig : EventHandler
 	// wraps and overwrites rather than refusing when it runs out, so a leaked
 	// slot is a slot somebody else silently loses later.
 	int mShapeSlot;
-	bool mBeamHeld;
-	bool mSweepHeld;
 
 	// The fan that opens out of a multi-weapon slot.
 	Array<int>   mSubIds;
