@@ -202,3 +202,34 @@ user float wr_canvas_scan   = 0.22;
 // nothing out there to read. It only ever fires on the hovered card, which is
 // why it is easy to miss entirely. Crank it to see what SDF is for.
 user float wr_glow = 1.6;
+
+
+// SPARKS
+//
+// A burst off the card you just took. 0 is off.
+user float wr_sparks       = 18.0;   // particles per commit
+user float wr_sparks_speed = 1.4;
+// 0 the slot's colour, 1 white hot, 2 rainbow.
+//
+// Slot colour is the default because it is doing a JOB -- same hue as the card,
+// the accent and the beam, so the burst confirms which one you hit. Rainbow is
+// prettier and says nothing.
+user int   wr_spark_color  = 0;
+
+// Degrees the taken card spins as the ring folds away. 0 holds it still.
+user float wr_flip         = 360.0;
+
+
+// GLOW WAVE
+//
+// Ripples the glows a map ALREADY HAS, per pixel, anchored at the ring -- with
+// separate phases for wall top, wall bottom, floor and ceiling so the wave
+// climbs a room instead of flashing it.
+//
+// In a map with no glowing surfaces this does nothing at all. Its whole effect
+// depends on the level you are standing in, which is why it is off by default
+// and not broken when it looks dead. 0 is off.
+user float wr_wave       = 0.0;
+user float wr_wave_len   = 120.0;
+user float wr_wave_speed = 1.6;
+user float wr_wave_sharp = 1.4;

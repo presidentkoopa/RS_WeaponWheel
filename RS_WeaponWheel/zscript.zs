@@ -121,6 +121,17 @@ class wr_Rig : EventHandler
 	// wraps and overwrites rather than refusing when it runs out, so a leaked
 	// slot is a slot somebody else silently loses later.
 	int mShapeSlot;
+	bool mWaveHeld;
+
+	// Where each card ended up this tic, so the commit burst can be thrown from
+	// the card rather than from the hand. Recorded during layout because that is
+	// the only place the position exists -- and read during commit, which
+	// happens before the ring is torn down.
+	Array<Vector3> mCardPos;
+
+	// Which card is flipping as the ring folds, and how long is left of it.
+	int mFlipCard;
+	int mFlipTics;
 
 	// The fan that opens out of a multi-weapon slot.
 	Array<int>   mSubIds;
@@ -239,6 +250,9 @@ class wr_Rig : EventHandler
 		mHavePoke  = false;
 		mShapeSlot = -1;
 		mOpenTics  = 0;
+		mCardPos.Clear();
+		mFlipCard  = -1;
+		mFlipTics  = 0;
 		mLockTics  = int(cv("wr_locktics", 140));
 
 
@@ -429,6 +443,7 @@ class wr_Rig : EventHandler
 		mAccents.Clear();
 		mGauges.Clear();
 		mFaces.Clear();
+		mCardPos.Clear();
 		mBaseColor.Clear();
 		mIconW.Clear();
 		mIconH.Clear();
@@ -1640,6 +1655,7 @@ class wr_Rig : EventHandler
 			if (gid != 0) level.SetBillboardGroup(gid, grp);
 			if (fid != 0) level.SetBillboardGroup(fid, grp);
 			if (aid != 0) level.SetBillboardGroup(aid, grp);
+			mCardPos.Push((0, 0, 0));
 			mGroups.Push(grp);
 		}
 	}
@@ -1880,6 +1896,17 @@ class wr_Rig : EventHandler
 			// lives in the SHARED basis the hit quad rolls with the picture --
 			// so a card caught mid-tumble is pointable exactly where it looks.
 			double roll = (1.0 - grow) * ARRIVE_ROLL * ((i % 2 == 0) ? 1.0 : -1.0);
+
+			// The card you took spins as it goes. A full turn over the collapse,
+			// eased so it leaves fast and slows into nothing rather than
+			// stopping dead at the moment it disappears.
+			if (i == mFlipCard && mFlipTics > 0 && CLOSE_TICS > 0)
+			{
+				double ft = 1.0 - (double(mFlipTics) / CLOSE_TICS);
+				roll += (1.0 - (1.0 - ft) * (1.0 - ft)) * cv("wr_flip", 360.0);
+			}
+
+			if (i < mCardPos.Size()) mCardPos[i] = pos;
 
 			// The group carries the whole card's origin, so scale happens about
 			// the card's own centre rather than about the world origin.
@@ -2134,6 +2161,7 @@ class wr_Rig : EventHandler
 
 		// The fold-away outlives the rig being open, so it is ticked down before
 		// the early-out rather than after it.
+		if (mFlipTics > 0) --mFlipTics;
 		if (mClosingTics > 0 && --mClosingTics <= 0) destroyPanels();
 
 		if (!mOpen) return;
@@ -2412,6 +2440,39 @@ class wr_Rig : EventHandler
 		// about when the rig has finished opening.
 		double grow = growFactor();
 
+		// THE ROOM'S OWN LIGHT RIPPLES.
+		//
+		// This one does not create light -- it modulates the glows a map
+		// already has, per pixel, with separate phases for wall top, wall
+		// bottom, floor and ceiling so a wave can climb a room rather than
+		// pulsing it uniformly. Anchored at the ring, so the level appears to
+		// react to the rig being open.
+		//
+		// Worth knowing before turning it on: in a map with NO glowing surfaces
+		// it does exactly nothing. Its whole effect is a function of the level
+		// you happen to be standing in, which is why it is off by default and
+		// not a bug when it seems dead.
+		double wave = cv("wr_wave", 0.0);
+		if (wave > 0.0)
+		{
+			level.SetGlowWaveOrigin(mAnchor);
+			level.SetGlowWave(cv("wr_wave_len", 120.0),
+			                  cv("wr_wave_speed", 1.6),
+			                  cv("wr_wave_sharp", 1.4), 1);
+			level.SetGlowWaveDepth(wave, wave * 0.8, wave * 0.5, 0.15, 3.0);
+
+			// Offset per channel so the wave CLIMBS instead of flashing the
+			// whole room at once -- which is the entire difference between this
+			// and a screen-wide brightness pulse.
+			level.SetGlowWavePhase(0.0, 0.35, 0.7, 1.05);
+			mWaveHeld = true;
+		}
+		else if (mWaveHeld)
+		{
+			level.SetGlowWave(0.0, 0.0, 0.0, 0);   // wavelength 0 = off
+			mWaveHeld = false;
+		}
+
 		// THE LASER GETS AIR IN IT.
 		//
 		// The engine laser is still the pointer -- it does the hit maths and
@@ -2554,6 +2615,89 @@ class wr_Rig : EventHandler
 		// RemoveShape, not ClearShapes: ours is one slot out of a shared pool
 		// and clearing the pool would take everyone else's with it.
 		if (mShapeSlot >= 0) { level.RemoveShape(mShapeSlot); mShapeSlot = -1; }
+		if (mWaveHeld)  { level.SetGlowWave(0.0, 0.0, 0.0, 0); mWaveHeld = false; }
+	}
+
+	// What colour the burst comes out.
+	//
+	//   0  the slot's colour -- the burst names what you just took
+	//   1  white hot
+	//   2  rainbow, cycling per particle
+	//
+	// Rainbow is not the default because the slot colour is doing a JOB: it is
+	// the same hue as the card, the accent and the beam, so the burst confirms
+	// which one you hit. Rainbow is prettier and says nothing. Both are worth
+	// having and only one of them is information.
+	private color sparkColor(int card)
+	{
+		int mode = int(cv("wr_spark_color", 0.0));
+
+		if (mode == 1) return 0xFFF0D8;
+		if (mode == 2) return 0;              // per-particle, see sparks()
+
+		if (card >= 0 && card < mCardSlots.Size()) return slotColor(mCardSlots[card]);
+		return COLOR_BEAM_IDLE;
+	}
+
+	// Full-saturation hue by index, for the rainbow mode. Six linear ramps
+	// rather than a proper HSV conversion -- the endpoints are the only thing
+	// the eye reads at this size and this is a fraction of the arithmetic.
+	private static color hueOf(int i, int n)
+	{
+		double h = 6.0 * (double(i % max(n, 1)) / max(n, 1));
+		int seg = int(h);
+		int t = int((h - seg) * 255.0);
+
+		switch (seg)
+		{
+			case 0:  return color(255, 255, t, 0);
+			case 1:  return color(255, 255 - t, 255, 0);
+			case 2:  return color(255, 0, 255, t);
+			case 3:  return color(255, 0, 255 - t, 255);
+			case 4:  return color(255, t, 0, 255);
+			default: return color(255, 255, 0, 255 - t);
+		}
+	}
+
+	// A burst off the card you just took, in that slot's colour.
+	//
+	// Thrown along the card's own outward bearing rather than sprayed evenly, so
+	// it reads as the card breaking apart in the direction it was sitting rather
+	// than as a firework going off in mid-air. Gravity on, so they fall.
+	private void sparks(Vector3 at, color tint, double amount)
+	{
+		int count = int(clamp(cv("wr_sparks", 18.0) * amount, 0.0, 200.0));
+		if (count <= 0) return;
+
+		double spread = cv("wr_sparks_speed", 1.4);
+
+		for (int i = 0; i < count; ++i)
+		{
+			FSpawnParticleParams p;
+
+			// A zero tint is the rainbow flag from sparkColor -- no colour is a
+			// value nothing legitimately wants, so it costs no extra argument.
+			p.color1     = (tint == 0) ? hueOf(i, count) : tint;
+			p.style      = STYLE_Add;
+			p.lifetime   = 18 + (i * 7) % 22;
+			p.size       = 1.6 + (i % 5) * 0.5;
+			p.sizestep   = -0.06;
+			p.pos        = at;
+
+			// No Math.Random here -- the rig runs in the playsim and a
+			// client-side visual must not touch the shared RNG, or two machines
+			// disagree about the game state over a spark.
+			double a = i * 137.508;                 // golden angle, so no clumps
+			double r = 0.35 + (i % 7) * 0.14;
+
+			p.vel = (cos(a) * r, sin(a) * r, 0.55 + (i % 4) * 0.22) * spread;
+			p.accel = (0, 0, -0.06);
+
+			p.startalpha = 1.0;
+			p.fadestep   = -1.0;                     // engine picks from lifetime
+
+			level.SpawnParticle(p);
+		}
 	}
 
 	private void updateHover(int hit)
@@ -2803,6 +2947,27 @@ class wr_Rig : EventHandler
 		bool dry = (ammoLeft(weap) == 0);
 		if (dry) feedback(Sound("wristrig/nope"), 0.35, 60);
 		else     feedback(Sound("wristrig/lock"), 0.75, 90);
+
+		// THE CARD COMES APART.
+		//
+		// Fired from where the card actually is, which is why it happens here
+		// and not after closeRig -- the ring is torn down on the next line and
+		// the position goes with it.
+		//
+		// A dry pick gets a smaller, sadder burst. The rig says the same thing
+		// three ways at that moment -- a different sound, a weaker pulse, fewer
+		// sparks -- because it is the one outcome you might genuinely not have
+		// meant.
+		int hitCard = cardIndexOf(mHovered);
+		if (hitCard >= 0 && hitCard < mCardPos.Size())
+		{
+			sparks(mCardPos[hitCard], sparkColor(hitCard), dry ? 0.4 : 1.0);
+
+			// And it flips as it folds away. Roll is a real axis now, and the
+			// group collapse keeps the billboards alive long enough to see it.
+			mFlipCard = hitCard;
+			mFlipTics = CLOSE_TICS;
+		}
 
 		// The swap already did its own equipping, above, because it needed to
 		// read the outgoing weapon before anything moved.

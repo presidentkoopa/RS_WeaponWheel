@@ -78,7 +78,19 @@ OptionMenu wr_Options
 	Slider "Floor marks (size)",        "wr_floor",        0.0, 40.0, 1.0, 0
 	Slider "Floor mark count",          "wr_floor_count",  1.0, 24.0, 1.0, 0
 	Slider "Floor mark spin",           "wr_floor_spin", -60.0, 60.0, 2.0, 0
+	// Ripples the glows a map ALREADY has. In a map with none it does nothing
+	// at all -- off by default, and not broken when it looks dead.
+	Slider "Room glow ripple",          "wr_wave",         0.0, 3.0, 0.1, 1
 	Submenu "Fine tuning...",           wr_RoomDetail
+
+	StaticText ""
+	StaticText "Taking a weapon", gold
+	Slider "Sparks",                    "wr_sparks",       0.0, 80.0, 2.0, 0
+	Slider "Spark speed",               "wr_sparks_speed", 0.2, 4.0, 0.1, 1
+	Option "Spark colour",              "wr_spark_color", "wr_SparkColors"
+	// Roll is a real billboard axis now, and the fold-away keeps the card alive
+	// long enough to see it turn.
+	Slider "Taken card spins",          "wr_flip",      -720.0, 720.0, 30.0, 0
 
 	StaticText ""
 	StaticText "Feel", gold
@@ -159,6 +171,13 @@ OptionMenu wr_RoomDetail
 	Slider "Brightness",                "wr_sweep_bright",  0.0, 4.0, 0.1, 1
 
 	StaticText ""
+	StaticText "Room glow ripple", gold
+	// Wavelength, how fast it travels, and how tight the peaks are.
+	Slider "Wavelength",                 "wr_wave_len",    20.0, 400.0, 10.0, 0
+	Slider "Speed",                      "wr_wave_speed",  -6.0, 6.0, 0.2, 1
+	Slider "Sharpness",                  "wr_wave_sharp",   0.2, 6.0, 0.1, 1
+
+	StaticText ""
 	StaticText "Mist", gold
 	// The slab has a TOP, so this is how far above the ring its surface sits.
 	Slider "Surface height above ring",  "wr_fog_rise",   -20.0, 40.0, 1.0, 0
@@ -176,4 +195,14 @@ OptionMenu wr_RoomDetail
 	Slider "Split open by",              "wr_floor_seam",   0.0, 1.0, 0.05, 2
 
 	StaticText ""
+}
+
+// Slot colour first because it is the one that carries information: the burst
+// comes out the same hue as the card, the accent and the beam, so it confirms
+// which one you hit. The other two are decoration.
+OptionValue wr_SparkColors
+{
+	0, "Slot colour"
+	1, "White hot"
+	2, "Rainbow"
 }
