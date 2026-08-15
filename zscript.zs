@@ -270,13 +270,47 @@ class wr_Rig : EventHandler
 
 		feedback(Sound("wristrig/open"), 0.40, 55);
 
-		// So "it did not open" and "it opened somewhere you cannot see" stop
-		// looking identical from the outside. Behind a cvar now that it does
-		// open: this fired on every summon, and a line of console for something
-		// that worked is just noise.
+		// WHAT ACTUALLY GOT BUILT, in one line.
+		//
+		// Deliberately narrow. Anything that fails LOUDLY -- a ring that does
+		// not appear, a card in the wrong place -- needs no print, and a print
+		// per event is how the console became noise the first time.
+		//
+		// These are the failures you cannot see. A canvas face falls back to a
+		// composed one without a word, so "wr_canvas on and it looks identical"
+		// reads exactly like "on and working subtly". An icon that resolves to
+		// nothing leaves a blank card with no clue whether the weapon has no
+		// pickup sprite or the lookup broke. Counting them is the difference
+		// between a diagnosis and another round of guessing.
 		if (cv("wr_debug", 0.0) > 0.0)
 		{
-			Console.Printf("\c[Gold]WRISTRIG\c- open, %d panels", mIds.Size());
+			int faces = 0, icons = 0;
+			for (int i = 0; i < mFaces.Size(); ++i)  { if (mFaces[i] != 0) ++faces; }
+			for (int i = 0; i < mIcons.Size(); ++i)  { if (mIcons[i] != 0) ++icons; }
+
+			bool wantCanvas = cv("wr_canvas", 0.0) > 0.0;
+
+			Console.Printf(
+				"\c[Gold]WRISTRIG\c- %d cards | plate %s | faces %d/%d%s | icons %d | hand %s",
+				mIds.Size(),
+				(plateKind() == LevelLocals.BB_SDFPANEL) ? "sdf" : "sampled",
+				faces, wantCanvas ? min(mIds.Size(), FACE_POOL) : 0,
+				(wantCanvas && faces == 0) ? " \c[Red]NONE PAINTED\c-" : "",
+				icons,
+				(mRigHand == 1) ? "off" : "main");
+
+			// Named separately because it is the one with a known cause and a
+			// known fix, rather than a number to interpret.
+			if (wantCanvas && faces == 0)
+			{
+				Console.Printf("\c[Gold]WRISTRIG\c- canvas returned nothing: "
+					"WRFACEnn undeclared, or animdefs.txt not loaded");
+			}
+			if (wantCanvas && mIds.Size() > FACE_POOL)
+			{
+				Console.Printf("\c[Gold]WRISTRIG\c- %d cards past the pool of %d "
+					"fell back to composed faces", mIds.Size() - FACE_POOL, FACE_POOL);
+			}
 		}
 	}
 
