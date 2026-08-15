@@ -4268,24 +4268,6 @@ class wr_Rig : EventHandler
 	// Crimson, matching the Cursed tier rather than inventing another red.
 	const COLOR_CURSE = 0xC81E37;
 
-	// THE STATS PANEL.
-	//
-	// 320x240 is a compromise: big enough that SmallFont rows are legible at
-	// arm.s length, small enough that a raster held that close does not show
-	// its pixels the way a wider one would.
-	const STATS_TEX  = "WRSTATS";
-	const STATS_W    = 320;
-	const STATS_H    = 240;
-	const STATS_HDR  = 30;
-	const STATS_PAD  = 10;
-	const STATS_ROW0 = 42;
-	const STATS_ROWH = 20;
-	const STATS_VALX = 120;
-	const STATS_BARX = 180;
-	const STATS_BARH = 8;
-
-	// Crimson, matching the Cursed tier rather than inventing a red.
-	const COLOR_CURSE = 0xC81E37;
 
 	// Billboards render 1.2x taller than authored -- world Z is stretched by the
 	// view matrix and the billboard path never unstretches it.
