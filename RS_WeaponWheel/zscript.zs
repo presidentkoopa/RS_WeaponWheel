@@ -1985,15 +1985,25 @@ class wr_Rig : EventHandler
 		c.Clear(l, sfy(b), r, sfy(t), col);
 	}
 
-	private void statText(Canvas c, int x, int y, string s)
+	private void statText(Canvas c, int x, int y, string s, color tint = 0xFFD8DEE9, double mul = 1.0)
 	{
 		if (s.Length() == 0) return;
 
-		double sc = cv("wr_stats_text", 1.6);
+		double sc = cv("wr_stats_text", 1.6) * mul;
 		int h = int(smallfont.GetHeight() * sc);
 
-		c.DrawText(smallfont, Font.CR_UNTRANSLATED, x, fy(y + h), s,
-			DTA_ScaleX, sc, DTA_ScaleY, sc, DTA_FlipY, true);
+		// DTA_Color, not a Font.CR_ index. The provider sends an RGB per stat --
+		// damage red, accuracy blue, and so on -- and a CR_ constant can only
+		// name one of about twenty ramps, so honouring the colour it actually
+		// asked for needs the arbitrary one.
+		//
+		// Colour is not decoration here. Every card on the ring is already a
+		// saturated hue, so a monochrome panel beside them reads as belonging to
+		// something else -- and once a stat has a fixed colour you find "damage"
+		// by looking rather than by reading.
+		c.DrawText(smallfont, Font.CR_UNTRANSLATED, x, sfy(y + h), s,
+			DTA_ScaleX, sc, DTA_ScaleY, sc, DTA_FlipY, true,
+			DTA_Color, tint);
 	}
 
 	private TextureID paintStats(string data, string weaponName)
@@ -2075,8 +2085,24 @@ class wr_Rig : EventHandler
 				string flag = (f.Size() >= 7) ? f[6] : "";
 				bool cursed = (flag == "cursed");
 
-				statText(canvas, STATS_PAD, y, f[1]);
-				statText(canvas, STATS_VALX, y, f[2]);
+				// Optional curse detail: what the stat WAS, how deep the stack
+				// is, and what the next clean lift pays back.
+				string wasVal = (f.Size() >= 8) ? f[7] : "";
+				int    stacks = (f.Size() >= 9) ? f[8].ToInt() : 0;
+				int    bonus  = (f.Size() >= 10) ? f[9].ToInt() : 0;
+
+				// The LABEL carries the stat's colour; the value stays neutral,
+				// so the eye finds the row by hue and reads the number without
+				// the hue arguing with it.
+				statText(canvas, STATS_PAD, y, f[1], c);
+				statText(canvas, STATS_VALX, y, f[2],
+					cursed ? COLOR_CURSE : 0xFFD8DEE9);
+
+				// "was 68", small and dim, right after the current value. The
+				// whole point of a wound is the distance from what it was.
+				if (cursed && wasVal.Length() > 0)
+					statText(canvas, STATS_VALX + 42, y + 3, "was " .. wasVal,
+					         dim(COLOR_CURSE, 0.75), 0.72);
 
 				// The bar, and its two tones. Dim is what the weapon rolled;
 				// bright is what it has earned since. A cursed row is outlined
@@ -2102,7 +2128,38 @@ class wr_Rig : EventHandler
 						sClear(canvas, bx + solid - gain, by, bx + solid, by + STATS_BARH, c);
 
 					if (cursed)
-						canvas.DrawLineFrame(COLOR_CURSE, bx, fy(by + STATS_BARH), bw, STATS_BARH);
+					{
+						// THE MISSING PART IS HATCHED, not just outlined.
+						//
+						// An outline says "something is different about this
+						// row". Diagonal marks across the gap say "this much was
+						// TAKEN", which is the thing worth showing -- the reader
+						// should see a wound without comparing two numbers.
+						//
+						// Drawn as short strokes rather than a pattern fill,
+						// because a canvas has no pattern brush.
+						for (int hx = bx + solid; hx < bx + bw; hx += 5)
+						{
+							canvas.DrawThickLine(hx, sfy(by),
+							                     min(hx + 4, bx + bw), sfy(by + STATS_BARH),
+							                     1.5, COLOR_CURSE, 190);
+						}
+
+						canvas.DrawLineFrame(COLOR_CURSE, bx, sfy(by + STATS_BARH), bw, STATS_BARH);
+
+						// One pip per stack, under the bar. Countable, and the
+						// same vocabulary the cards use for ammo.
+						for (int s = 0; s < min(stacks, 6); ++s)
+							sClear(canvas, bx + s * 9, by + STATS_BARH + 2,
+							       bx + s * 9 + 6, by + STATS_BARH + 5, COLOR_CURSE);
+
+						// What the next clean lift pays. A deep curse is a wound
+						// AND a stored reward, and only saying the first half
+						// makes it look like a dead loss.
+						if (bonus > 0)
+							statText(canvas, bx + bw - 34, y + 1,
+							         String.Format("+%d%%", bonus), 0xFFE8A93E, 0.72);
+					}
 				}
 
 				y += STATS_ROWH;
@@ -2113,9 +2170,9 @@ class wr_Rig : EventHandler
 		// Header last, so nothing scrolled into it.
 		sClear(canvas, 0, 0, STATS_W, STATS_HDR, dim(tierCol, 0.22));
 		sClear(canvas, 0, 0, STATS_W, 3, tierCol);
-		statText(canvas, STATS_PAD, 8, title);
+		statText(canvas, STATS_PAD, 8, title, 0xFFF2E8C0, 1.15);
 		if (tierWord.Length() > 0)
-			statText(canvas, STATS_W - 90, 8, tierWord);
+			statText(canvas, STATS_W - 84, 10, tierWord, tierCol, 0.8);
 
 		// Promotion chevrons: service marks, not a number in a cell.
 		for (int p = 0; p < min(promo, 8); ++p)
@@ -2133,7 +2190,7 @@ class wr_Rig : EventHandler
 			color cc = danger ? COLOR_CURSE : 0x6FE3B0;
 
 			sClear(canvas, STATS_PAD, cy, STATS_W - STATS_PAD, cy + 26, dim(cc, 0.14));
-			statText(canvas, STATS_PAD + 6, cy + 6, String.Format("CND %d", condNow));
+			statText(canvas, STATS_PAD + 4, cy + 6, String.Format("CND %d", condNow), cc, 0.9);
 
 			int bx = STATS_PAD + 84;
 			int bw = STATS_W - STATS_PAD - 60 - bx;
@@ -2141,7 +2198,7 @@ class wr_Rig : EventHandler
 			sClear(canvas, bx, cy + 9, bx + int(bw * (double(condNow) / condMax)), cy + 17, cc);
 
 			if (danger && backfire > 0)
-				statText(canvas, STATS_W - 62, cy + 6, String.Format("%d%%", backfire));
+				statText(canvas, STATS_W - 54, cy + 6, String.Format("%d%%", backfire), cc, 0.9);
 		}
 
 		// Sockets as pips -- the same vocabulary the cards use for ammo.

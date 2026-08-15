@@ -27,7 +27,7 @@ able to break a weapon menu.
 title  <name>
 tier   <word>            <0xRRGGBB>
 promo  <count>
-stat   <label>  <value>  <0xRRGGBB>  <fill 0-1>  <earned 0-1>  <flag>
+stat   <label>  <value>  <0xRRGGBB>  <fill 0-1>  <earned 0-1>  <flag>  <was>  <stacks>  <bonus>
 cond   <now>    <max>    <backfire percent>
 sock   <used>   <total>
 affix  <name>
@@ -43,7 +43,27 @@ draws brighter than the rest of the bar. That two-tone split is the whole reason
 the bar exists: it tells you a weapon's history at a glance in a way a number
 cannot.
 
-**`flag`** is empty, `cursed`, or `locked`. A cursed row is outlined in crimson.
+**The label draws in your colour, the value stays neutral.** The eye finds a row
+by hue and reads the number without the hue arguing with it. Every card on the
+ring is already a saturated colour, so a monochrome panel beside them reads as
+belonging to a different program — pick a fixed colour per stat and people learn
+to find "damage" by looking rather than by reading.
+
+**`flag`** is empty, `cursed`, or `locked`.
+
+**The last three fields are the curse detail**, and they are what make a cursed
+row worth looking at rather than merely marked:
+
+- **`was`** — what the stat was before. Printed small beside the current value,
+  because the whole point of a wound is the distance from what it was.
+- **`stacks`** — drawn as countable pips under the bar. Depth matters: with two
+  stacks the next lift frees nothing and only un-halves.
+- **`bonus`** — what the next *clean* lift pays back, drawn in warm amber. A deep
+  curse is a wound **and** a stored reward, and showing only the first half makes
+  it read as a dead loss.
+
+The gap between `fill` and full is hatched in crimson, so the reader sees how
+much was taken without comparing two numbers.
 
 ---
 
@@ -71,12 +91,18 @@ class RS_WheelStats : Service
         out = out .. StatRow("Damage", "" .. w.DamagePerShot, 0xD9453C,
                              w.DamagePerShot / 200.0,
                              w.EarnedDamage() / 200.0,
-                             w.CurseStackDamage > 0 ? "cursed" : "");
+                             w.CurseStackDamage > 0 ? "cursed" : "",
+                             w.PreCurseDamage > 0 ? "" .. w.PreCurseDamage : "",
+                             w.CurseStackDamage,
+                             w.LiftBonusPercent(w.CurseStackDamage));
 
         out = out .. StatRow("Accuracy", "" .. int(w.Accuracy), 0x4FA3D1,
                              w.Accuracy / 100.0,
                              w.EarnedAccuracy() / 100.0,
-                             w.CurseStackAccuracy > 0 ? "cursed" : "");
+                             w.CurseStackAccuracy > 0 ? "cursed" : "",
+                             w.PreCurseAccuracy > 0 ? "" .. int(w.PreCurseAccuracy) : "",
+                             w.CurseStackAccuracy,
+                             w.LiftBonusPercent(w.CurseStackAccuracy));
 
         // ... velocity, crit, capacity, rate of fire, pellets, choke
 
@@ -91,12 +117,14 @@ class RS_WheelStats : Service
     }
 
     static String StatRow(String label, String value, int col,
-                          double fill, double earned, String flag)
+                          double fill, double earned, String flag,
+                          String was = "", int stacks = 0, int bonus = 0)
     {
         return "stat\t" .. label .. "\t" .. value .. "\t"
              .. String.Format("0x%06X", col) .. "\t"
              .. clamp(fill, 0.0, 1.0) .. "\t"
-             .. clamp(earned, 0.0, 1.0) .. "\t" .. flag .. "\n";
+             .. clamp(earned, 0.0, 1.0) .. "\t" .. flag .. "\t"
+             .. was .. "\t" .. stacks .. "\t" .. bonus .. "\n";
     }
 }
 ```
