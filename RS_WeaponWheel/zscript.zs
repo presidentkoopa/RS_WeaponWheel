@@ -531,7 +531,7 @@ class wr_Rig : EventHandler
 
 	// Geometry generation. Bump this whenever the numbers below change and every
 	// existing config picks them up once, automatically.
-	const CFG_VERSION = 15;
+	const CFG_VERSION = 16;
 
 	private void migrateConfig()
 	{
@@ -546,6 +546,13 @@ class wr_Rig : EventHandler
 		// moved from an arc to fixed bearings. Nothing reads them now and the
 		// cvars are gone; an archived value left in someone's config is inert.
 		setCv("wr_tilt",   12.0);
+
+		// Gen 16: real models default ON. A changed DEFAULT can never reach
+		// anyone who has already loaded the mod -- the cvar was written to their
+		// config the first time and the saved value wins forever -- so turning
+		// it on means rewriting it here once, which is the entire reason this
+		// stamp exists.
+		setCv("wr_models", 1);
 		setCv("wr_touch",   7.0);
 		setCv("wr_forward", 34.0);
 		setCv("wr_bullettime", 1);
@@ -2887,7 +2894,7 @@ class wr_Rig : EventHandler
 	private void spawnCardModels(PlayerPawn pmo)
 	{
 		clearCardModels();
-		if (cv("wr_models", 0.0) <= 0.0) return;
+		if (cv("wr_models", 1.0) <= 0.0) return;
 
 		double sc = cv("wr_model_scale", 0.16);
 

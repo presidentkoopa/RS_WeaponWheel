@@ -280,9 +280,9 @@ user bool wr_subcards = true;
 // shows its pickup SPRITE in the world instead, which still has stereo depth
 // and still beats a flat icon.
 //
-// OFF by default. This is the only thing the rig does that puts actors in the
-// world, and a weapon set whose classes do something surprising when spawned
-// should not surprise you without being asked.
-user bool  wr_models      = false;
+// ON by default. It is the only thing the rig does that puts actors in the
+// world, so it is also the first thing to switch off if a weapon set does
+// something surprising when its classes are spawned.
+user bool  wr_models      = true;
 user float wr_model_scale = 0.16;
 user float wr_model_lift  = 3.0;
