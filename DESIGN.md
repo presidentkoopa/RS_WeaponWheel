@@ -172,3 +172,27 @@ Gaze wants a dwell before it commits, or looking past a card picks it.
 **Not body holsters.** Those were considered early and rejected: reaching to an
 unseen point on your own torso has no feedback and no way to be learned. A
 forearm rail is in front of you, visible, and can say what it is holding.
+
+---
+
+## Later: gesture casts
+
+Also not built, and smaller than it sounds — the same rail idea with the row
+cut down to three.
+
+Hold the off hand in a particular orientation and three cards appear around it:
+one below, one to each side. Each is bound to its own button, so the ORIENTATION
+picks the set and the button picks the member. Turn your hand a different way and
+the same three buttons mean three different things.
+
+That is a spell system without a spell system: no menu, no mode, no cooldown UI.
+The gesture is the selection, and the reason it works is the same reason the ring
+works — a fixed position is learnable, and once learned you stop looking at it.
+
+**Three is the number on purpose.** It is what fits around a hand without
+overlapping, it maps to buttons you already have, and it is few enough to know by
+feel. Beyond three this becomes the ring again and should just be the ring.
+
+**What it needs that does not exist yet:** an orientation classifier — palm up,
+palm down, thumb in, and so on — from the same hand pose data `handRollOf` and
+`handAim` already read. Everything downstream of that is cards, which is built.
