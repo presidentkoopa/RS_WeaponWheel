@@ -1,0 +1,9 @@
+# Build output. Rebuilt from this folder by zipdir -- see README.md.
+RS_WeaponWheel.pk3
+*.pk3
+*.pk3.temp
+
+# GZDoom leaves these next to a loaded pk3.
+*.bak
+*.cfg
+*.ini
