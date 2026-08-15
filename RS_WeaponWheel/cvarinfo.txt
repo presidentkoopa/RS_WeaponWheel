@@ -266,3 +266,23 @@ user int   wr_readout = 0;
 // a dwell and a reach, at the cost of the fixed bearing: picking up a second
 // plasma rifle moves everything after it round the ring.
 user bool wr_subcards = true;
+
+
+// REAL MODELS ON THE CARDS
+//
+// MODELDEF binds a model to a CLASS, so there is no way to hand a generic
+// carrier somebody else's model. The way through is to spawn the weapon's OWN
+// class and let the engine resolve it -- which means this works for any
+// model-based weapon set rather than a list we knew about, and copies nothing.
+//
+// The spawned copy is defanged: not pickupable, not in the blockmap, no
+// thinking, no gravity, not on the automap. A weapon with no MODELDEF entry
+// shows its pickup SPRITE in the world instead, which still has stereo depth
+// and still beats a flat icon.
+//
+// OFF by default. This is the only thing the rig does that puts actors in the
+// world, and a weapon set whose classes do something surprising when spawned
+// should not surprise you without being asked.
+user bool  wr_models      = false;
+user float wr_model_scale = 0.16;
+user float wr_model_lift  = 3.0;

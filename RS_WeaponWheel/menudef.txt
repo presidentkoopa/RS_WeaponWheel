@@ -57,6 +57,11 @@ OptionMenu wr_Options
 	// The other way to build a card: artwork painted into a texture in 2D pixel
 	// coordinates instead of assembled from billboards in map units. Both work.
 	// A raster, so it shows its pixels up close where the field payloads do not.
+	// Spawns the weapon own class as an inert prop so the engine resolves its
+	// MODELDEF. Real geometry with real stereo depth, not a picture of a gun.
+	Option "Real models on cards",      "wr_models",       "OnOff"
+	Slider "  Model size",              "wr_model_scale",  0.02, 1.0, 0.02, 2
+	Slider "  Model stand-off",         "wr_model_lift",   0.0, 12.0, 0.5, 1
 	Option "Painted card faces",        "wr_canvas",       "OnOff"
 	// Above 1 the sprite crops at the card edge, which no billboard can do.
 	Slider "  Sprite bleed",            "wr_canvas_bleed",  0.6, 2.5, 0.05, 2

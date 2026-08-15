@@ -86,6 +86,7 @@ class wr_Rig : EventHandler
 	Array<int> mFaces;            // one painted canvas texture per card
 	Array<int> mMarks;            // "you already have this", per card
 	Actor      mLight;            // one dynamic light, on the hovered card
+	Array<Actor> mModels;         // a real weapon model per card, when enabled
 
 	// ONE GROUP PER CARD, so a card is an object rather than six loose quads.
 	//
@@ -245,6 +246,7 @@ class wr_Rig : EventHandler
 		if (mTypes.Size() == 0) return;
 
 		spawnPanels();
+		spawnCardModels(pmo);
 
 		mOpen      = true;
 		mHovered   = 0;
@@ -371,6 +373,7 @@ class wr_Rig : EventHandler
 			return;
 		}
 
+		clearCardModels();
 		destroyPanels();
 	}
 
@@ -1958,6 +1961,7 @@ class wr_Rig : EventHandler
 
 			if (i < mCardPos.Size()) mCardPos[i] = pos;
 
+
 			// FOCUS. Cards you are not pointing at step back.
 			//
 			// Only once something IS hovered -- dimming the whole ring the
@@ -1975,6 +1979,18 @@ class wr_Rig : EventHandler
 			if (i < mLabels.Size())  fade(mLabels[i], cardAlpha);
 			if (i < mAmmos.Size())   fade(mAmmos[i], cardAlpha);
 			if (i < mMarks.Size())   fade(mMarks[i], cardAlpha);
+
+			// The model floats a little in FRONT of its plate, so the card backs
+			// it rather than intersecting it, and it takes the same pulse and
+			// the same fade as everything else on the card.
+			if (i < mModels.Size() && mModels[i] != null)
+			{
+				double ms = cv("wr_model_scale", 0.16) * pulse;
+				mModels[i].SetOrigin(pos + lift * cv("wr_model_lift", 3.0), true);
+				mModels[i].Scale = (ms, ms);
+				mModels[i].Alpha = cardAlpha;
+				mModels[i].A_SetRenderStyle(cardAlpha, STYLE_Translucent);
+			}
 
 			// The held-weapon mark, pinned to the card's top-right corner.
 			if (i < mMarks.Size() && mMarks[i] != 0)
@@ -2698,6 +2714,7 @@ class wr_Rig : EventHandler
 		// and clearing the pool would take everyone else's with it.
 		if (mShapeSlot >= 0) { level.RemoveShape(mShapeSlot); mShapeSlot = -1; }
 		if (mLight != null)  { mLight.Destroy(); mLight = null; }
+		clearCardModels();
 		if (mWaveHeld)  { level.SetGlowWave(0.0, 0.0, 0.0, 0); mWaveHeld = false; }
 	}
 
@@ -2838,6 +2855,69 @@ class wr_Rig : EventHandler
 
 			level.SpawnParticle(p);
 		}
+	}
+
+	// A REAL MODEL AT EACH CARD.
+	//
+	// MODELDEF binds a model to a CLASS -- `Model Vanilla_BFG9000 { ... }` --
+	// so there is no way to hand a generic carrier somebody else's model. That
+	// is the same wall the hand model hit. The way through it is not to copy
+	// anything: spawn the weapon's OWN class and the engine resolves its model
+	// by itself, which means this works for any model-based weapon set rather
+	// than a list of ones we knew about.
+	//
+	// A billboard cannot do this at all. There is no model payload -- a
+	// billboard is a quad -- and rendering a model into a card via a camera
+	// texture costs a full RenderViewpoint per card per frame, doubled again for
+	// stereo. A real actor costs one model draw and, unlike a picture of a gun
+	// on a flat card, it has actual stereo depth and catches the card light.
+	//
+	// DEFANGED ON SPAWN, and every one of these matters:
+	//   bSpecial off   -- an Inventory actor in the world is picked up on touch,
+	//                     and a display prop that vanishes into your backpack
+	//                     when you reach for its card is worse than no prop.
+	//   NOBLOCKMAP     -- never enters the blockmap, so nothing can collide with
+	//                     it or even test against it.
+	//   NOINTERACTION  -- no thinking, no gravity, no movement.
+	//   NOTONAUTOMAP   -- eight guns should not appear on the map.
+	//
+	// Degrades honestly: a weapon with no MODELDEF entry shows its pickup
+	// SPRITE in the world instead, which still has depth and still beats a flat
+	// icon.
+	private void spawnCardModels(PlayerPawn pmo)
+	{
+		clearCardModels();
+		if (cv("wr_models", 0.0) <= 0.0) return;
+
+		double sc = cv("wr_model_scale", 0.16);
+
+		for (int i = 0; i < mTypes.Size(); ++i)
+		{
+			let a = Actor.Spawn(mTypes[i], pmo.Pos, NO_REPLACE);
+			if (a == null) { mModels.Push(null); continue; }
+
+			a.bSpecial      = false;
+			a.bNoBlockmap   = true;
+			a.bNoInteraction = true;
+			a.bNoGravity    = true;
+			a.bNoTonAutomap = true;
+			a.bThruActors   = true;
+			a.bCountItem    = false;
+
+			a.Scale = (sc, sc);
+			a.SetStateLabel('Spawn');
+
+			mModels.Push(a);
+		}
+	}
+
+	private void clearCardModels()
+	{
+		for (int i = 0; i < mModels.Size(); ++i)
+		{
+			if (mModels[i] != null) mModels[i].Destroy();
+		}
+		mModels.Clear();
 	}
 
 	// Guarded so a zero handle is a no-op rather than a call into nothing --
