@@ -418,8 +418,17 @@ class wr_Rig : EventHandler
 	// have scaled its psprites and 1.0 is not a safe thing to restore to.
 	private void shrinkHeldWeapon(PlayerPawn pmo, double factor)
 	{
+		// NEVER CAPTURE A SCALE WE ALREADY SHRANK.
+		//
+		// The saved value is the one true record of how big the weapon is meant
+		// to be; overwrite it while the shrink is applied and the original is
+		// gone for good. Any path that reaches here twice without a restore in
+		// between would compound, which is exactly how this went half, quarter,
+		// eighth. The commit path was the one that did it, and it is fixed at
+		// source -- this is the guard that stops the next one being a bug.
+		if (mHaveSavedScale) return;
+
 		mSavedScale = (0, 0);
-		mHaveSavedScale = false;
 
 		let psp = pmo.player.GetPSprite(mRigHand == 1 ? PSP_OFFHANDWEAPON : PSP_WEAPON);
 		if (psp == null) return;
@@ -2363,10 +2372,10 @@ class wr_Rig : EventHandler
 		int layer = wantOffhand ? PSP_OFFHANDWEAPON : PSP_WEAPON;
 		player.SetPsprite(layer, weap.GetReadyState());
 
-		// The rig had shrunk and re-sprited whatever used to be in this hand.
-		// That saved state belongs to a weapon that is no longer here, so it must
-		// not be restored over the new one.
-		mHaveSavedScale = false;
+		// NO SCALE BOOKKEEPING HERE. It is commit()'s job, and it has to happen
+		// BEFORE any of this runs -- see the note there. Dropping the flag at
+		// this point without putting the scale back is what shrank the weapon by
+		// half on every single use.
 	}
 
 	// Which weapon the OTHER hand is holding, or null.
@@ -2461,6 +2470,19 @@ class wr_Rig : EventHandler
 
 		let weap = Weapon(pmo.FindInventory(want));
 		if (weap == null) { closeRig(); return; }
+
+		// PUT THE SCALE BACK BEFORE ANYTHING MOVES.
+		//
+		// SetPsprite REUSES the DPSprite already on that layer -- it sets a new
+		// state on it, it does not build a new one -- so psp.scale survives the
+		// weapon changing underneath it. Equipping while the rig still had the
+		// hand shrunk therefore left the layer at half size with nothing left
+		// holding a record of the original, and the next open captured THAT as
+		// its "original". Half, then a quarter, then an eighth, once per use.
+		//
+		// Here rather than inside equipInstantly because a swap calls that twice,
+		// for two different hands, and only the rig hand was ever shrunk.
+		restoreHeldWeapon(pmo);
 
 		// PICKING THE GUN YOUR OTHER HAND IS ALREADY HOLDING.
 		//
