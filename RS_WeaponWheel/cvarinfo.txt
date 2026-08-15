@@ -337,7 +337,7 @@ user float wr_scan_crawl = 1.0;
 // nothing listening it shows what the wheel itself knows, which for a vanilla
 // weapon is still worth having.
 user bool  wr_stats      = true;
-user float wr_stats_size = 1.35;   // multiples of a card width
-user float wr_stats_text = 1.6;    // font scale inside the panel
+user float wr_stats_size = 2.7;    // multiples of a card width
+user float wr_stats_text = 2.2;    // font scale inside the panel
 user float wr_stats_side = 1.0;    // 1 right of the ring, -1 left
 user float wr_stats_rise = 0.0;

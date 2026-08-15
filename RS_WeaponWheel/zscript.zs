@@ -1938,22 +1938,58 @@ class wr_Rig : EventHandler
 	{
 		if (w == null) return "";
 
-		string s = "title\t" .. w.GetTag() .. "\n";
-		s = s .. "tier\tSlot " .. slot .. "\t" .. String.Format("0x%06X", slotColor(slot)) .. "\n";
+		int sc = slotColor(slot) & 0xFFFFFF;
 
+		string s = "title\t" .. w.GetTag() .. "\n";
+		s = s .. "tier\tSLOT " .. slot .. "\t" .. String.Format("0x%06X", sc) .. "\n";
+
+		// EVERYTHING THE WHEEL ITSELF KNOWS, and it is more than it was
+		// reporting. Two rows in a panel sized for ten is what made this look
+		// broken -- and "no provider loaded" should still be worth switching on,
+		// because most people will never have one.
 		int loaded = ammoLoaded(w);
 		if (loaded >= 0)
 		{
 			double f = ammoLoadedFrac(w);
-			s = s .. "stat\tLoaded\t" .. loaded .. "\t"
-			      .. String.Format("0x%06X", slotColor(slot)) .. "\t"
-			      .. (f >= 0.0 ? f : 0.0) .. "\t0\t\n";
+			s = s .. statRow("Loaded", "" .. loaded, sc, f >= 0.0 ? f : 0.0);
+
+			int cap = ammoLoadedCap(w);
+			if (cap > 0) s = s .. statRow("Capacity", "" .. cap, 0x3FBF6F, 1.0);
 		}
 
 		int res = ammoReserve(w);
-		if (res >= 0) s = s .. "stat\tReserve\t" .. res .. "\t0x4FA3D1\t0\t0\t\n";
+		if (res >= 0)
+		{
+			double rf = (w.Ammo1 != null && w.Ammo1.MaxAmount > 0)
+				? clamp(double(res) / w.Ammo1.MaxAmount, 0.0, 1.0) : 0.0;
+			s = s .. statRow("Reserve", "" .. res, 0x4FA3D1, rf);
+		}
+
+		int alt = ammoLeft2(w);
+		if (alt >= 0)
+		{
+			double af = ammoFrac2(w);
+			s = s .. statRow("Alt fire", "" .. alt, 0xD14F9B, af >= 0.0 ? af : 0.0);
+		}
+
+		// Ammo TYPE, because on a weapon set with a dozen calibres the name of
+		// the thing you are out of is the useful part.
+		if (w.Ammo1 != null)
+			s = s .. statRow("Ammo", w.Ammo1.GetTag(), 0xE8A93E, -1.0);
+
+		
 
 		return s;
+	}
+
+	// One row of the contract, so the fallback and any future internal source
+	// build them the same way a provider does.
+	private static string statRow(string label, string value, int col, double fill,
+	                              double earned = 0.0, string flag = "")
+	{
+		return "stat\t" .. label .. "\t" .. value .. "\t"
+		     .. String.Format("0x%06X", col) .. "\t"
+		     .. fill .. "\t" .. earned .. "\t" .. flag .. "\t\t0\t0\n";
 	}
 
 	// Paint the panel from whatever the provider said.
@@ -1989,7 +2025,7 @@ class wr_Rig : EventHandler
 	{
 		if (s.Length() == 0) return;
 
-		double sc = cv("wr_stats_text", 1.6) * mul;
+		double sc = cv("wr_stats_text", 2.2) * mul;
 		int h = int(smallfont.GetHeight() * sc);
 
 		// DTA_Color, not a Font.CR_ index. The provider sends an RGB per stat --
@@ -2039,6 +2075,31 @@ class wr_Rig : EventHandler
 		int    condNow = -1, condMax = 100, backfire = 0;
 		int    sockUsed = 0, sockTotal = 0;
 
+		// ROWS FILL THE PANEL, however many there are.
+		//
+		// A fixed row height means a weapon with two stats gets a box sized for
+		// ten and eight tenths of it is empty grey -- which is exactly what a
+		// provider-less fallback looked like. Spacing from the count keeps the
+		// panel full whether it is showing two rows or twelve, and a panel that
+		// is full looks deliberate.
+		//
+		// Capped, because four rows stretched over two hundred pixels is its own
+		// kind of wrong.
+		int nStats = 0;
+		for (int i = 0; i < lines.Size(); ++i)
+		{
+			if (lines[i].IndexOf("stat\t") == 0) ++nStats;
+		}
+
+		bool hasCond = (data.IndexOf("cond\t") >= 0);
+		bool hasSock = (data.IndexOf("sock\t") >= 0);
+
+		int bottom = (hasCond ? 40 : 0) + (hasSock ? 22 : 0);
+		int space  = STATS_H - STATS_ROW0 - bottom - 6;
+		int rowH   = (nStats > 0)
+			? clamp(space / nStats, STATS_ROWH, STATS_ROWH * 3)
+			: STATS_ROWH;
+
 		int y = STATS_ROW0;
 
 		for (int i = 0; i < lines.Size(); ++i)
@@ -2077,7 +2138,7 @@ class wr_Rig : EventHandler
 
 			if (kind == "stat" && f.Size() >= 5)
 			{
-				if (y > STATS_H - STATS_ROWH * 2) continue;   // out of panel
+				if (y > STATS_H - bottom - rowH) continue;   // out of panel
 
 				color c = (f[3].Length() > 0)
 					? color(f[3].ToInt() | 0xFF000000) : COLOR_LABEL;
@@ -2162,7 +2223,7 @@ class wr_Rig : EventHandler
 					}
 				}
 
-				y += STATS_ROWH;
+				y += rowH;
 				continue;
 			}
 		}
@@ -4008,7 +4069,7 @@ class wr_Rig : EventHandler
 		}
 
 		double panelW = cv("wr_panel_w", 4.2) * cv("wr_scale", 1.0);
-		double w = panelW * cv("wr_stats_size", 1.35);
+		double w = panelW * cv("wr_stats_size", 2.7);
 		double h = w * (double(STATS_H) / STATS_W) / CARD_STRETCH;
 
 		// Anchored off the ring's own centre and pushed out along the side the
