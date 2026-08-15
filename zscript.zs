@@ -1196,7 +1196,26 @@ class wr_Rig : EventHandler
 	// and the count stay as field billboards on top, and the canvas carries the
 	// artwork underneath them.
 	//
-	// Painted ONCE, on open. Nothing on a card changes while the ring is up.
+	// REPAINTED EVERY TIC, and that is not a choice.
+	//
+	// A canvas is a COMMAND QUEUE, not a picture. hw_entrypoint's update loop
+	// does exactly this:
+	//
+	//     Draw2D(&canvas->Drawer, ...);
+	//     canvas->Drawer.Clear();
+	//
+	// -- it plays the queue into the texture and then empties it. Meanwhile
+	// binding the texture to draw a card re-flags it as needing an update. So a
+	// canvas that stays on screen is re-rendered every frame from a queue that
+	// is empty after the first one, and since these are translucent canvases the
+	// engine clears them to transparent when there is nothing to draw.
+	//
+	// Painting once therefore gave exactly one good frame and then bare plates
+	// for the rest of the ring's life, with the odd card catching whatever was
+	// left in the framebuffer.
+	//
+	// Cheap enough: a few dozen queued 2D ops per card at 35Hz, for at most
+	// twelve cards, and nothing here touches the playsim.
 	private TextureID paintFace(int pool, Weapon held, int slot, bool dry)
 	{
 		TextureID none;
@@ -1343,6 +1362,23 @@ class wr_Rig : EventHandler
 		canvas.DrawLineFrame(dim(slotColor(slot), 0.45), 0, 0, FACE_W, FACE_H);
 
 		return TexMan.CheckForTexture(name, TexMan.Type_Any);
+	}
+
+	// Re-queue every card's artwork. See the note on paintFace for why this
+	// cannot be done once at open.
+	private void repaintFaces(PlayerPawn pmo)
+	{
+		if (cv("wr_canvas", 0.0) <= 0.0) return;
+
+		for (int i = 0; i < mFaces.Size() && i < mTypes.Size(); ++i)
+		{
+			if (mFaces[i] == 0) continue;
+
+			let held = Weapon(pmo.FindInventory(mTypes[i]));
+			if (held == null) continue;
+
+			paintFace(i, held, mCardSlots[i], ammoLeft(held) == 0);
+		}
 	}
 
 	// Magazine size, for deciding whether pips can be literal.
@@ -2096,6 +2132,10 @@ class wr_Rig : EventHandler
 		}
 
 		++mOpenTics;
+
+		// Before layout, so the artwork is queued for the same frame the cards
+		// are placed in.
+		repaintFaces(pmo);
 
 		// RE-ASSERT THE FIST, EVERY TIC.
 		//
