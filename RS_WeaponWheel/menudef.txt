@@ -109,7 +109,8 @@ OptionMenu wr_Options
 	// Reads the weapon you are pointing at. Any weapon mod can fill it via the
 	// RS_WheelStats service; with nothing listening it shows ammo and slot.
 	Option "Show stats panel",          "wr_stats",        "OnOff"
-	Slider "  Panel size",              "wr_stats_size",   0.8, 5.0, 0.1, 1
+	Slider "  Panel size",              "wr_stats_size",   0.6, 3.0, 0.05, 2
+	Slider "  Text size",               "wr_stats_text",   0.8, 3.0, 0.1, 1
 	Slider "  Side (-1 left, 1 right)", "wr_stats_side",  -1.0, 1.0, 2.0, 0
 	Slider "  Height offset",           "wr_stats_rise", -12.0, 12.0, 0.5, 1
 	// Separates a card from a busy wall without knowing anything about the wall.

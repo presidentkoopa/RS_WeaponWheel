@@ -28,4 +28,4 @@ canvastexture WRFACE09 140 100 fit 140 100 WorldPanning
 canvastexture WRFACE10 140 100 fit 140 100 WorldPanning
 canvastexture WRFACE11 140 100 fit 140 100 WorldPanning
 
-canvastexture WRSTATS 320 240 fit 320 240 WorldPanning
+canvastexture WRSTATS 240 200 fit 240 200 WorldPanning

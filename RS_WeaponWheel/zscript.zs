@@ -1963,6 +1963,39 @@ class wr_Rig : EventHandler
 	// has no business guessing. The only thing forced to the bottom is
 	// condition, because it is the one row that changes what happens when you
 	// pull the trigger.
+	// TEXT ON A CANVAS THAT SAMPLES UPSIDE DOWN.
+	//
+	// Two corrections, exactly as the card sprites needed. Moving the row to
+	// fy() puts it in the right PLACE; DTA_FlipY is what stops every glyph
+	// arriving on its head once it gets there. Fix one and it is still wrong.
+	//
+	// fy() is measured from the row's BOTTOM, because a flipped glyph grows
+	// upward from its origin rather than downward.
+	//
+	// Scaled because SmallFont on a 320-wide canvas is about six pixels of
+	// letter, which is a caption on a monitor and unreadable on a panel a metre
+	// away in a headset.
+	// The stats canvas is 240 tall and the card canvas is 100, so it needs its
+	// own flip -- fy() would mirror it against the wrong height and put every
+	// row off the panel.
+	private static int sfy(int y) { return STATS_H - y; }
+
+	private void sClear(Canvas c, int l, int t, int r, int b, color col)
+	{
+		c.Clear(l, sfy(b), r, sfy(t), col);
+	}
+
+	private void statText(Canvas c, int x, int y, string s)
+	{
+		if (s.Length() == 0) return;
+
+		double sc = cv("wr_stats_text", 1.6);
+		int h = int(smallfont.GetHeight() * sc);
+
+		c.DrawText(smallfont, Font.CR_UNTRANSLATED, x, fy(y + h), s,
+			DTA_ScaleX, sc, DTA_ScaleY, sc, DTA_FlipY, true);
+	}
+
 	private TextureID paintStats(string data, string weaponName)
 	{
 		TextureID none;
@@ -1974,7 +2007,17 @@ class wr_Rig : EventHandler
 
 		TexMan.SetCanvasTextureTranslucent(STATS_TEX, true);
 
-		canvas.Clear(0, 0, STATS_W, STATS_H, 0xE8121820);
+		// The plate, built the way a card's is rather than as one flat fill: a
+		// gradient in bands so it has a lit top and a shaded bottom. A single
+		// grey rectangle beside eight gradient-lit cards looks like a different
+		// program, which is exactly how it looked.
+		for (int b = 0; b < FACE_BANDS; ++b)
+		{
+			int y0 = STATS_H * b / FACE_BANDS;
+			int y1 = STATS_H * (b + 1) / FACE_BANDS;
+			double k = 1.0 - 0.45 * (double(b) / (FACE_BANDS - 1));
+			sClear(canvas, 0, y0, STATS_W, y1, dim(COLOR_IDLE, k));
+		}
 
 		Array<string> lines;
 		data.Split(lines, "\n", TOK_SKIPEMPTY);
@@ -2032,10 +2075,8 @@ class wr_Rig : EventHandler
 				string flag = (f.Size() >= 7) ? f[6] : "";
 				bool cursed = (flag == "cursed");
 
-				canvas.DrawText(smallfont, Font.CR_UNTRANSLATED, STATS_PAD, y, f[1],
-					DTA_ScaleX, 1.0, DTA_ScaleY, 1.0);
-				canvas.DrawText(smallfont, Font.CR_UNTRANSLATED, STATS_VALX, y, f[2],
-					DTA_ScaleX, 1.0, DTA_ScaleY, 1.0);
+				statText(canvas, STATS_PAD, y, f[1]);
+				statText(canvas, STATS_VALX, y, f[2]);
 
 				// The bar, and its two tones. Dim is what the weapon rolled;
 				// bright is what it has earned since. A cursed row is outlined
@@ -2050,18 +2091,18 @@ class wr_Rig : EventHandler
 					int bw = STATS_W - STATS_PAD - bx;
 					int by = y + 2;
 
-					canvas.Clear(bx, by, bx + bw, by + STATS_BARH, dim(c, 0.16));
+					sClear(canvas, bx, by, bx + bw, by + STATS_BARH, dim(c, 0.16));
 
 					int solid = int(bw * clamp(fill, 0.0, 1.0));
 					int gain  = int(bw * clamp(earned, 0.0, 1.0));
 
 					if (solid > gain)
-						canvas.Clear(bx, by, bx + solid - gain, by + STATS_BARH, dim(c, 0.55));
+						sClear(canvas, bx, by, bx + solid - gain, by + STATS_BARH, dim(c, 0.55));
 					if (gain > 0)
-						canvas.Clear(bx + solid - gain, by, bx + solid, by + STATS_BARH, c);
+						sClear(canvas, bx + solid - gain, by, bx + solid, by + STATS_BARH, c);
 
 					if (cursed)
-						canvas.DrawLineFrame(COLOR_CURSE, bx, by, bw, STATS_BARH);
+						canvas.DrawLineFrame(COLOR_CURSE, bx, fy(by + STATS_BARH), bw, STATS_BARH);
 				}
 
 				y += STATS_ROWH;
@@ -2070,18 +2111,18 @@ class wr_Rig : EventHandler
 		}
 
 		// Header last, so nothing scrolled into it.
-		canvas.Clear(0, 0, STATS_W, STATS_HDR, dim(tierCol, 0.22));
-		canvas.Clear(0, 0, STATS_W, 3, tierCol);
-		canvas.DrawText(smallfont, Font.CR_UNTRANSLATED, STATS_PAD, 8, title);
+		sClear(canvas, 0, 0, STATS_W, STATS_HDR, dim(tierCol, 0.22));
+		sClear(canvas, 0, 0, STATS_W, 3, tierCol);
+		statText(canvas, STATS_PAD, 8, title);
 		if (tierWord.Length() > 0)
-			canvas.DrawText(smallfont, Font.CR_UNTRANSLATED, STATS_W - 90, 8, tierWord);
+			statText(canvas, STATS_W - 90, 8, tierWord);
 
 		// Promotion chevrons: service marks, not a number in a cell.
 		for (int p = 0; p < min(promo, 8); ++p)
 		{
 			int px = STATS_W - 96 - p * 9;
-			canvas.DrawThickLine(px, 12, px + 5, 16, 3, tierCol, 255);
-			canvas.DrawThickLine(px, 20, px + 5, 16, 3, tierCol, 255);
+			canvas.DrawThickLine(px, fy(12), px + 5, fy(16), 3, tierCol, 255);
+			canvas.DrawThickLine(px, fy(20), px + 5, fy(16), 3, tierCol, 255);
 		}
 
 		// Condition, pinned to the bottom whatever else arrived.
@@ -2091,18 +2132,16 @@ class wr_Rig : EventHandler
 			bool danger = (condNow < 20);
 			color cc = danger ? COLOR_CURSE : 0x6FE3B0;
 
-			canvas.Clear(STATS_PAD, cy, STATS_W - STATS_PAD, cy + 26, dim(cc, 0.14));
-			canvas.DrawText(smallfont, Font.CR_UNTRANSLATED, STATS_PAD + 6, cy + 6,
-				String.Format("CND %d", condNow));
+			sClear(canvas, STATS_PAD, cy, STATS_W - STATS_PAD, cy + 26, dim(cc, 0.14));
+			statText(canvas, STATS_PAD + 6, cy + 6, String.Format("CND %d", condNow));
 
 			int bx = STATS_PAD + 84;
 			int bw = STATS_W - STATS_PAD - 60 - bx;
-			canvas.Clear(bx, cy + 9, bx + bw, cy + 17, dim(cc, 0.25));
-			canvas.Clear(bx, cy + 9, bx + int(bw * (double(condNow) / condMax)), cy + 17, cc);
+			sClear(canvas, bx, cy + 9, bx + bw, cy + 17, dim(cc, 0.25));
+			sClear(canvas, bx, cy + 9, bx + int(bw * (double(condNow) / condMax)), cy + 17, cc);
 
 			if (danger && backfire > 0)
-				canvas.DrawText(smallfont, Font.CR_UNTRANSLATED, STATS_W - 62, cy + 6,
-					String.Format("%d%%", backfire));
+				statText(canvas, STATS_W - 62, cy + 6, String.Format("%d%%", backfire));
 		}
 
 		// Sockets as pips -- the same vocabulary the cards use for ammo.
@@ -2112,10 +2151,27 @@ class wr_Rig : EventHandler
 			for (int s = 0; s < min(sockTotal, 8); ++s)
 			{
 				int sx = STATS_PAD + s * 26;
-				canvas.Clear(sx, sy, sx + 20, sy + 10,
+				sClear(canvas, sx, sy, sx + 20, sy + 10,
 					(s < sockUsed) ? 0x3FBF6F : 0x1C3226);
 			}
 		}
+
+		// Scanlines and a rim, the same two things that stop a card reading as a
+		// picture pasted on a plate. The rim is the TIER colour, which is the
+		// panel's whole identity signal -- a frame around everything, meaning
+		// "this is what the entire weapon is".
+		double scan = cv("wr_canvas_scan", 0.22);
+		if (scan > 0.0)
+		{
+			int phase = int(level.maptime * cv("wr_scan_crawl", 1.0) * 0.25) % 3;
+			for (int y = -3 + phase; y < STATS_H; y += 3)
+			{
+				if (y >= 0) canvas.Dim(0x000000, scan, 0, sfy(y + 1), STATS_W, 1);
+			}
+		}
+
+		canvas.DrawLineFrame(tierCol, 0, 0, STATS_W, STATS_H);
+		canvas.DrawLineFrame(dim(tierCol, 0.5), 1, 1, STATS_W - 2, STATS_H - 2);
 
 		return TexMan.CheckForTexture(STATS_TEX, TexMan.Type_Any);
 	}
@@ -3895,7 +3951,7 @@ class wr_Rig : EventHandler
 		}
 
 		double panelW = cv("wr_panel_w", 4.2) * cv("wr_scale", 1.0);
-		double w = panelW * cv("wr_stats_size", 2.2);
+		double w = panelW * cv("wr_stats_size", 1.35);
 		double h = w * (double(STATS_H) / STATS_W) / CARD_STRETCH;
 
 		// Anchored off the ring's own centre and pushed out along the side the
@@ -4255,15 +4311,15 @@ class wr_Rig : EventHandler
 	// arm's length, small enough that a raster held that close does not show
 	// its pixels the way a wider one would.
 	const STATS_TEX  = "WRSTATS";
-	const STATS_W    = 320;
-	const STATS_H    = 240;
-	const STATS_HDR  = 30;
+	const STATS_W    = 240;
+	const STATS_H    = 200;
+	const STATS_HDR  = 34;
 	const STATS_PAD  = 10;
-	const STATS_ROW0 = 42;
-	const STATS_ROWH = 20;
-	const STATS_VALX = 120;
-	const STATS_BARX = 180;
-	const STATS_BARH = 8;
+	const STATS_ROW0 = 46;
+	const STATS_ROWH = 22;
+	const STATS_VALX = 96;
+	const STATS_BARX = 140;
+	const STATS_BARH = 9;
 
 	// Crimson, matching the Cursed tier rather than inventing another red.
 	const COLOR_CURSE = 0xC81E37;
