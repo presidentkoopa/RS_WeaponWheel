@@ -2546,6 +2546,11 @@ class wr_Rig : EventHandler
 	// A card with nothing left in it. Dark red rather than grey: grey reads as
 	// disabled, and this weapon is not disabled -- you can absolutely select it,
 	// it just will not fire.
+	// What the beam, the sweep and the mist are tinted when the pointer is on
+	// nothing. Cool and dim on purpose: every slot colour is warmer or brighter
+	// than this, so landing on a card always reads as a step UP.
+	const COLOR_BEAM_IDLE = 0x5A6C7A;
+
 	const COLOR_DRY      = 0x3A2226;
 	const COLOR_AMMO     = 0x8C97A8;
 	const COLOR_AMMO_DRY = 0xC65C5C;
