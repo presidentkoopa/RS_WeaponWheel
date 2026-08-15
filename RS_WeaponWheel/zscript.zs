@@ -752,7 +752,7 @@ class wr_Rig : EventHandler
 			// extra information matters most: its entries are the SAME GUN in
 			// different states, so which one is dry and which one your other
 			// hand is holding is the entire question being asked.
-			bool sdry = (cv("wr_ammo", 1.0) > 0.0 && ammoLeft(held) == 0);
+			bool sdry = (cv("wr_ammo", 1.0) > 0.0 && ammoLoaded(held) == 0);
 			int srest = sdry ? COLOR_DRY : COLOR_SUB;
 
 			int sid = level.AddBillboardPersistent(
@@ -814,7 +814,7 @@ class wr_Rig : EventHandler
 
 			// The variants in a slot are the same GUN in different states, so the
 			// count under each is often the only thing telling them apart.
-			int srounds = ammoLeft(held);
+			int srounds = ammoLoaded(held);
 			int said = 0;
 			double saw = AMMO_W_FRAC;
 			if (cv("wr_ammo", 1.0) > 0.0 && srounds >= 0)
@@ -1263,9 +1263,38 @@ class wr_Rig : EventHandler
 	// faster on alt fire has Ammo2 pointing at the same Ammo instance as Ammo1,
 	// and printing that number twice would be a readout that says nothing and
 	// costs a row.
+	// A MAGAZINE IS NOT AN ALT FIRE, and the same field carries both.
+	//
+	// Weapon.Ammo2 means "the second ammo type", and two completely different
+	// systems use it. A weapon with a real alt fire keeps a separate pile for
+	// it. A weapon with a magazine keeps its LOADED ROUNDS there and refills
+	// them from Ammo1, which is then the reserve -- that is exactly what
+	// RS_Main does: `needed = Capacity - CountInv(AmmoType2)`, filled from
+	// `reserve = AmmoType1`.
+	//
+	// Reading Ammo2 as alt fire on a magazine weapon gets the numbers right and
+	// the meaning backwards, and worse, it means the FIRST number -- the one
+	// with all the emphasis -- is your backpack rather than what is in the gun.
+	//
+	// Told apart by asking whether an alt fire exists at all. No AltFire state
+	// means Ammo2 cannot be feeding one, whatever else it is for.
+	private static bool hasAltFire(Weapon w)
+	{
+		return w != null && w.FindState('AltFire') != null;
+	}
+
+	// Ammo2 as a magazine: a second pile, no alt fire to spend it, and a
+	// capacity meaningfully smaller than the reserve it is drawn from.
+	private static bool hasMagazine(Weapon w)
+	{
+		if (w == null || w.Ammo2 == null || w.Ammo2 == w.Ammo1) return false;
+		if (hasAltFire(w)) return false;
+		return true;
+	}
+
 	private static bool hasSecondAmmo(Weapon w)
 	{
-		return w != null && w.Ammo2 != null && w.Ammo2 != w.Ammo1;
+		return w != null && w.Ammo2 != null && w.Ammo2 != w.Ammo1 && hasAltFire(w);
 	}
 
 	// What the bezel reads. "24" normally, "24|3" when alt fire has its own
@@ -1281,6 +1310,12 @@ class wr_Rig : EventHandler
 	// rather than worked around; picking the lozenge is picking that trade.
 	private static string ammoText(Weapon w, int rounds)
 	{
+		// Loaded first, reserve second -- the order the gun cares about. A
+		// magazine weapon reads "8|112": eight in it, a hundred and twelve
+		// behind it.
+		int res = ammoReserve(w);
+		if (res >= 0) return String.Format("%d|%d", rounds, res);
+
 		int alt = ammoLeft2(w);
 		if (alt < 0) return String.Format("%d", rounds);
 		return String.Format("%d|%d", rounds, alt);
@@ -1307,7 +1342,41 @@ class wr_Rig : EventHandler
 	// Ammo1 is the field, and it is only populated once the weapon has been
 	// picked up -- which every weapon on a card has been, since the card only
 	// exists because FindInventory returned it.
-	private static int ammoLeft(Weapon w)
+	// WHAT IS IN THE GUN, not what is in the backpack.
+	//
+	// On a magazine weapon the loaded rounds live in Ammo2 and Ammo1 is the
+	// reserve, so reading Ammo1 as the headline number reported the pile you
+	// are NOT currently able to fire. Every card, every pip row and every dry
+	// warning was answering the wrong question for those weapons -- including
+	// the dry test, which called a gun with an empty reserve and a full
+	// magazine "dry".
+	private static int ammoLoaded(Weapon w)
+	{
+		if (hasMagazine(w)) return w.Ammo2.Amount;
+		return ammoLeftRaw(w);
+	}
+
+	private static int ammoLoadedCap(Weapon w)
+	{
+		if (hasMagazine(w)) return w.Ammo2.MaxAmount;
+		return ammoCapRaw(w);
+	}
+
+	private static double ammoLoadedFrac(Weapon w)
+	{
+		int cap = ammoLoadedCap(w);
+		if (cap <= 0) return -1.0;
+		return clamp(double(ammoLoaded(w)) / cap, 0.0, 1.0);
+	}
+
+	// The reserve behind a magazine, or -1 when there is not one.
+	private static int ammoReserve(Weapon w)
+	{
+		if (!hasMagazine(w) || w.Ammo1 == null) return -1;
+		return w.Ammo1.Amount;
+	}
+
+	private static int ammoLeftRaw(Weapon w)
 	{
 		if (w == null || w.Ammo1 == null) return -1;
 		return w.Ammo1.Amount;
@@ -1713,15 +1782,29 @@ class wr_Rig : EventHandler
 		// individually countable rectangles is just a worse bar.
 		if (cv("wr_ammo", 1.0) > 0.0)
 		{
-			pipRow(canvas, PIP_TOP, ammoLeft(held), ammoFrac(held),
-			       ammoCap(held), slotColor(slot));
+			pipRow(canvas, PIP_TOP, ammoLoaded(held), ammoLoadedFrac(held),
+			       ammoLoadedCap(held), slotColor(slot));
 
-			// The secondary reserve gets its own row directly under the first,
-			// thinner and in a cooler tint so the two are never confused at a
-			// glance. Drawn only when alt fire has a pile of its own.
-			pipRow(canvas, PIP_TOP + BAR_H + 3, ammoLeft2(held), ammoFrac2(held),
-			       hasSecondAmmo(held) ? held.Ammo2.MaxAmount : -1,
-			       COLOR_ALT_PIP);
+			// The second row is the RESERVE on a magazine weapon and the alt
+			// fire pile on one with a real alt fire -- never both, since a
+			// weapon cannot use Ammo2 for two things at once. Cooler tint
+			// either way so it is never mistaken for more of the first row.
+			//
+			// Pips are literal up to twelve, which is right for a magazine and
+			// wrong for a reserve of two hundred, so the reserve is always
+			// drawn as tenths by handing it a count above the literal ceiling.
+			if (hasMagazine(held) && held.Ammo1 != null && held.Ammo1.MaxAmount > 0)
+			{
+				double rfrac = clamp(double(held.Ammo1.Amount) / held.Ammo1.MaxAmount, 0.0, 1.0);
+				pipRow(canvas, PIP_TOP + BAR_H + 3, PIP_LITERAL_MAX + 1, rfrac,
+				       held.Ammo1.MaxAmount, COLOR_ALT_PIP);
+			}
+			else
+			{
+				pipRow(canvas, PIP_TOP + BAR_H + 3, ammoLeft2(held), ammoFrac2(held),
+				       hasSecondAmmo(held) ? held.Ammo2.MaxAmount : -1,
+				       COLOR_ALT_PIP);
+			}
 		}
 
 		// SCANLINES, over everything.
@@ -1772,12 +1855,12 @@ class wr_Rig : EventHandler
 			let held = Weapon(pmo.FindInventory(mTypes[i]));
 			if (held == null) continue;
 
-			paintFace(i, held, mCardSlots[i], ammoLeft(held) == 0);
+			paintFace(i, held, mCardSlots[i], ammoLoaded(held) == 0);
 		}
 	}
 
 	// Magazine size, for deciding whether pips can be literal.
-	private static int ammoCap(Weapon w)
+	private static int ammoCapRaw(Weapon w)
 	{
 		if (w == null || w.Ammo1 == null) return -1;
 		return w.Ammo1.MaxAmount;
@@ -1843,7 +1926,7 @@ class wr_Rig : EventHandler
 			// worst possible moment to find out. The colour is the resting state,
 			// not a hover state, so it is readable without pointing at anything.
 			let heldNow = Weapon(players[consoleplayer].mo.FindInventory(mTypes[i]));
-			int rest = (cv("wr_ammo", 1.0) > 0.0 && ammoLeft(heldNow) == 0)
+			int rest = (cv("wr_ammo", 1.0) > 0.0 && ammoLoaded(heldNow) == 0)
 			         ? COLOR_DRY : COLOR_IDLE;
 			mBaseColor.Push(rest);
 
@@ -1985,7 +2068,7 @@ class wr_Rig : EventHandler
 			// thing strapped to your arm should look like.
 			int aid = 0;
 			double aw = AMMO_W_FRAC;
-			int rounds = ammoLeft(held);
+			int rounds = ammoLoaded(held);
 			if (cv("wr_ammo", 1.0) > 0.0 && rounds >= 0)
 			{
 				// WG13 reads its number from `data`; the other two read `text`.
@@ -2047,7 +2130,7 @@ class wr_Rig : EventHandler
 			// does not. BB_BAR's data is a fill PERCENT, 0..100, and it grows
 			// from the left edge so only the right end moves.
 			int gid = 0;
-			double frac = ammoFrac(held);
+			double frac = ammoLoadedFrac(held);
 			if (cv("wr_ammo", 1.0) > 0.0 && frac >= 0.0 && !canvasFace)
 			{
 				gid = level.AddBillboardPersistent(
@@ -3742,7 +3825,7 @@ class wr_Rig : EventHandler
 		// it and you may well have meant it -- but you find out now, from the
 		// wrist, rather than at the trigger with something walking at you. The
 		// pulse is shorter and weaker too: the hand agrees with the ear.
-		bool dry = (ammoLeft(weap) == 0);
+		bool dry = (ammoLoaded(weap) == 0);
 		if (dry) feedback(Sound("wristrig/nope"), 0.35, 60);
 		else     feedback(Sound("wristrig/lock"), 0.75, 90);
 
