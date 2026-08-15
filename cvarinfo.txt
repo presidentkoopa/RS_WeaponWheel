@@ -164,3 +164,21 @@ user float wr_floor_thick  = 0.18;
 user float wr_floor_bright = 1.2;
 // How far each mark splits open down its middle as the rig arrives.
 user float wr_floor_seam   = 0.5;
+
+
+// CANVAS FACES
+//
+// The other way to build a card. Instead of one billboard per element, each
+// placed in map units every tic, the artwork is PAINTED into a texture in
+// ordinary 2D pixel coordinates and the card shows that one image.
+//
+// Both work and neither is strictly better. A canvas is a raster, so held
+// close in VR it shows its pixels where the distance-field payloads never
+// will -- which is why the name and the count stay as field billboards on top
+// either way, and only the artwork underneath them changes.
+//
+// Twelve canvas textures are declared in animdefs.txt. A card past that falls
+// back to the composed face on its own, so a big weapon set degrades rather
+// than breaking. Painted once on open; nothing on a card changes while the
+// ring is up.
+user bool wr_canvas = false;

@@ -83,6 +83,7 @@ class wr_Rig : EventHandler
 
 	Array<int> mAccents;          // the slot-coloured bar along the card's top
 	Array<int> mGauges;           // BB_BAR: ammo as a proportion
+	Array<int> mFaces;            // one painted canvas texture per card
 
 	// ONE GROUP PER CARD, so a card is an object rather than six loose quads.
 	//
@@ -356,6 +357,10 @@ class wr_Rig : EventHandler
 		{
 			if (mGauges[i]) level.RemoveBillboard(mGauges[i]);
 		}
+		for (int i = 0; i < mFaces.Size(); ++i)
+		{
+			if (mFaces[i]) level.RemoveBillboard(mFaces[i]);
+		}
 		if (mCentreId)    level.RemoveBillboard(mCentreId);
 		if (mCentreIcon)  level.RemoveBillboard(mCentreIcon);
 		if (mCentreLabel) level.RemoveBillboard(mCentreLabel);
@@ -389,6 +394,7 @@ class wr_Rig : EventHandler
 		mAmmos.Clear();
 		mAccents.Clear();
 		mGauges.Clear();
+		mFaces.Clear();
 		mBaseColor.Clear();
 		mIconW.Clear();
 		mIconH.Clear();
@@ -1137,6 +1143,113 @@ class wr_Rig : EventHandler
 		return rad | (bor << 8);
 	}
 
+	// PAINT A CARD'S FACE INTO A CANVAS TEXTURE.
+	//
+	// The other way to build a card is the way this mod already does it: one
+	// billboard per element, each positioned, oriented, rolled and scaled in
+	// MAP UNITS every tic, with the layout expressed as fractions of the panel
+	// tuned by eye. That works and it stays sharp, because the text payloads are
+	// distance fields.
+	//
+	// This is the other option. Compose the face as an image, in ordinary 2D
+	// pixel coordinates where "the bar sits eight pixels under the icon" is
+	// eight pixels, and hand the card one texture. Anything drawable becomes a
+	// card: a dial instead of a bar, a silhouette with marks over it, pips
+	// instead of a number.
+	//
+	// The trade is real and it is why BOTH exist. A canvas is a RASTER -- held
+	// close in VR it shows its pixels, where BB_SEGMENT never will. So the name
+	// and the count stay as field billboards on top, and the canvas carries the
+	// artwork underneath them.
+	//
+	// Painted ONCE, on open. Nothing on a card changes while the ring is up.
+	private TextureID paintFace(int pool, Weapon held, int slot, bool dry)
+	{
+		TextureID none;
+		none.SetInvalid();
+
+		string name = String.Format("WRFACE%02d", pool);
+
+		let canvas = TexMan.GetCanvas(name);
+		if (canvas == null) return none;   // not declared, or not a canvas
+
+		// Without this the untouched corners come out opaque black instead of
+		// letting the plate behind show through.
+		TexMan.SetCanvasTextureTranslucent(name, true);
+
+		int bg = dry ? COLOR_DRY : COLOR_IDLE;
+
+		// The gradient, as bands. A canvas has no gradient primitive, and five
+		// steps across a hundred pixels is under the eye's threshold at the size
+		// a card is ever seen.
+		for (int b = 0; b < FACE_BANDS; ++b)
+		{
+			int y0 = FACE_H * b / FACE_BANDS;
+			int y1 = FACE_H * (b + 1) / FACE_BANDS;
+
+			double k = 1.0 - 0.55 * (double(b) / (FACE_BANDS - 1));
+			canvas.Clear(0, y0, FACE_W, y1, dim(bg, k));
+		}
+
+		// The slot's colour along the top edge, same promise the accent bar
+		// makes on the composed card.
+		canvas.Clear(0, 0, FACE_W, FACE_ACCENT, slotColor(slot));
+
+		// The pickup sprite, fitted to its own shape rather than stretched. In
+		// canvas space this is honest pixels -- no billboard stretch to undo.
+		TextureID icon = iconFor(held);
+		if (icon.IsValid())
+		{
+			Vector2 sz = TexMan.GetScaledSize(icon);
+			double iw = ICON_BOX_W, ih = ICON_BOX_H;
+
+			if (sz.X > 0 && sz.Y > 0)
+			{
+				double aspect = sz.X / sz.Y;
+				iw = ICON_BOX_W;
+				ih = iw / aspect;
+				if (ih > ICON_BOX_H) { ih = ICON_BOX_H; iw = ih * aspect; }
+			}
+
+			canvas.DrawTexture(icon, true,
+				(FACE_W - iw) * 0.5, ICON_TOP + (ICON_BOX_H - ih) * 0.5,
+				DTA_DestWidth, int(iw), DTA_DestHeight, int(ih));
+		}
+
+		// The gauge, as a track and a fill. Two Clears rather than a primitive,
+		// which is exactly what BB_BAR does in the renderer.
+		double frac = ammoFrac(held);
+		if (cv("wr_ammo", 1.0) > 0.0 && frac >= 0.0)
+		{
+			int left  = BAR_INSET;
+			int right = FACE_W - BAR_INSET;
+			int top   = FACE_H - BAR_BOTTOM;
+			int bot   = top + BAR_H;
+
+			canvas.Clear(left, top, right, bot, dim(slotColor(slot), 0.22));
+
+			int fill = left + int((right - left) * frac + 0.5);
+			if (fill > left) canvas.Clear(left, top, fill, bot, slotColor(slot));
+		}
+
+		// A hairline round the outside, so the artwork has an edge even when the
+		// plate behind it is switched off.
+		canvas.DrawLineFrame(dim(slotColor(slot), 0.45), 0, 0, FACE_W, FACE_H);
+
+		return TexMan.CheckForTexture(name, TexMan.Type_Any);
+	}
+
+	// Scale a colour's channels without touching its alpha. Canvas.Clear wants
+	// a packed ARGB and there is no multiply on a colour in ZScript.
+	private static color dim(color c, double k)
+	{
+		k = clamp(k, 0.0, 1.0);
+		int r = int(((c >> 16) & 0xFF) * k);
+		int g = int(((c >>  8) & 0xFF) * k);
+		int b = int(( c        & 0xFF) * k);
+		return color(255, r, g, b);
+	}
+
 	private void spawnPanels()
 	{
 		mIds.Clear();
@@ -1144,6 +1257,7 @@ class wr_Rig : EventHandler
 		mIcons.Clear();
 		mAmmos.Clear();
 		mAccents.Clear();
+		mFaces.Clear();
 		mGauges.Clear();
 		mGroups.Clear();
 		mBaseColor.Clear();
@@ -1243,10 +1357,36 @@ class wr_Rig : EventHandler
 			// should be honoured. It is dropped by nearly everyone -- including
 			// Gearbox, which is why its icons are subtly wrong -- so it is kept
 			// here and used at layout time.
+			// CANVAS FACE, or the composed one.
+			//
+			// When the canvas carries the artwork, the separate icon and gauge
+			// billboards are not created at all -- they are already painted into
+			// it, and drawing both would stack two icons on one card.
+			//
+			// Falls back per card, not per ring: the thirteenth weapon in a set
+			// larger than the pool simply gets a composed face and everything
+			// keeps working.
+			int fid = 0;
+			bool canvasFace = false;
+
+			if (cv("wr_canvas", 0.0) > 0.0 && heldNow != null && i < FACE_POOL)
+			{
+				TextureID face = paintFace(i, heldNow, mCardSlots[i], rest == COLOR_DRY);
+				if (face.IsValid())
+				{
+					fid = level.AddBillboardPersistent(
+						(0, 0, 0), 3.5, 2.5, 0, 0,
+						LevelLocals.BBF_FIXED, LevelLocals.BB_TEXTURE, face.GetIndex(),
+						0xFFFFFF, LevelLocals.BBFL_NOHIT, 0, "");
+					canvasFace = true;
+				}
+			}
+			mFaces.Push(fid);
+
 			int iid = 0;
 			double iw = ICON_W_FRAC, ih = ICON_H_FRAC;
 			let held = heldNow;
-			if (held != null)
+			if (held != null && !canvasFace)
 			{
 				TextureID icon = iconFor(held);
 
@@ -1295,7 +1435,7 @@ class wr_Rig : EventHandler
 			// from the left edge so only the right end moves.
 			int gid = 0;
 			double frac = ammoFrac(held);
-			if (cv("wr_ammo", 1.0) > 0.0 && frac >= 0.0)
+			if (cv("wr_ammo", 1.0) > 0.0 && frac >= 0.0 && !canvasFace)
 			{
 				gid = level.AddBillboardPersistent(
 					(0, 0, 0), 3.5, 0.35, 0, 0,
@@ -1324,6 +1464,7 @@ class wr_Rig : EventHandler
 			level.SetBillboardGroup(lid, grp);
 			if (iid != 0) level.SetBillboardGroup(iid, grp);
 			if (gid != 0) level.SetBillboardGroup(gid, grp);
+			if (fid != 0) level.SetBillboardGroup(fid, grp);
 			if (aid != 0) level.SetBillboardGroup(aid, grp);
 			mGroups.Push(grp);
 		}
@@ -1632,6 +1773,18 @@ class wr_Rig : EventHandler
 				                                   panelH * ACCENT_H_FRAC * pulse);
 				level.OrientBillboard(mAccents[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
 				level.RollBillboard(mAccents[i], roll);
+			}
+
+			// The painted face, filling the card and riding a shade in front of
+			// the plate. Slightly inset so the SDF plate still shows as a rim
+			// around it -- which is what keeps the plate's glow visible.
+			if (i < mFaces.Size() && mFaces[i] != 0)
+			{
+				level.MoveBillboard(mFaces[i], pos + lift * 0.5);
+				level.ResizeBillboard(mFaces[i], panelW * 0.92 * pulse,
+				                                 panelH * 0.92 * pulse);
+				level.OrientBillboard(mFaces[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+				level.RollBillboard(mFaces[i], roll);
 			}
 
 			// Sized to the icon's OWN shape rather than stamped into a fixed
@@ -2509,6 +2662,20 @@ class wr_Rig : EventHandler
 	// Billboards render 1.2x taller than authored -- world Z is stretched by the
 	// view matrix and the billboard path never unstretches it.
 	const CARD_STRETCH = 1.2;
+
+	// CANVAS FACES. Pixel coordinates, matching the ANIMDEFS declarations --
+	// change one and the other has to move with it.
+	const FACE_W      = 140;
+	const FACE_H      = 100;
+	const FACE_POOL   = 12;    // how many WRFACEnn textures are declared
+	const FACE_BANDS  = 5;     // gradient steps
+	const FACE_ACCENT = 6;     // slot stripe height
+	const ICON_BOX_W  = 96.0;
+	const ICON_BOX_H  = 46.0;
+	const ICON_TOP    = 16.0;
+	const BAR_INSET   = 16;
+	const BAR_BOTTOM  = 26;
+	const BAR_H       = 7;
 
 	// The box an icon is fitted into, as a fraction of the card.
 	const ICON_W_FRAC = 0.72;

@@ -51,6 +51,10 @@ OptionMenu wr_Options
 	Option "Sharp plates (SDF)",        "wr_sdf",          "OnOff"
 	Slider "Corner rounding",           "wr_plate_radius", 0, 15, 1, 0
 	Slider "Plate border",              "wr_plate_border", 0, 15, 1, 0
+	// The other way to build a card: artwork painted into a texture in 2D pixel
+	// coordinates instead of assembled from billboards in map units. Both work.
+	// A raster, so it shows its pixels up close where the field payloads do not.
+	Option "Painted card faces",        "wr_canvas",       "OnOff"
 
 	StaticText ""
 	StaticText "The room", gold
