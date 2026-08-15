@@ -151,6 +151,11 @@ class wr_Rig : EventHandler
 	Array<int>   mSubLabels;
 	Array<double> mSubIconW;
 	Array<double> mSubIconH;
+	Array<int>    mSubAccents;
+	Array<int>    mSubMarks;
+	Array<int>    mSubBase;      // resting colour, so hover-off restores the right one
+	Array<double> mSubAmmoW;
+	Array<double> mSubLabelH;
 	Array<Class<Weapon> > mSubTypes;
 	int mExpanded;                // index into mIds, or -1
 	int mDwellTics;               // how long the hover has sat on one card
@@ -724,13 +729,50 @@ class wr_Rig : EventHandler
 
 			mSubTypes.Push(variants[i]);
 
+			// A SUBCARD IS A CARD. It was not being treated as one.
+			//
+			// Everything the ring cards gained -- the solved plate, the dry
+			// colour, the slot stripe, the held marker, a fitted name -- the fan
+			// kept missing, so opening one dropped you from an instrument back
+			// to the flat panels this started as. And a fan is exactly where the
+			// extra information matters most: its entries are the SAME GUN in
+			// different states, so which one is dry and which one your other
+			// hand is holding is the entire question being asked.
+			bool sdry = (cv("wr_ammo", 1.0) > 0.0 && ammoLeft(held) == 0);
+			int srest = sdry ? COLOR_DRY : COLOR_SUB;
+
 			int sid = level.AddBillboardPersistent(
 				(0, 0, 0), 3.5, 2.5, 0, 0,
-				LevelLocals.BBF_FIXED, LevelLocals.BB_PANEL, 0,
-				COLOR_SUB, 0, 0, "");
-			level.SetBillboardGradient(sid, GRAD_IDLE);
+				LevelLocals.BBF_FIXED, plateKind(), plateShape(),
+				srest, 0, 0, "");
+			level.SetBillboardGradient(sid, sdry ? GRAD_DRY : GRAD_IDLE);
 			level.SetBillboardGroup(sid, mFanGroup);
 			mSubIds.Push(sid);
+			mSubBase.Push(srest);
+
+			// The parent slot's colour, so a fan reads as belonging to the card
+			// it came out of rather than as loose panels near it.
+			int sacc = level.AddBillboardPersistent(
+				(0, 0, 0), 3.5, 0.3, 0, 0,
+				LevelLocals.BBF_FIXED, LevelLocals.BB_PANEL, 0,
+				slotColor(mCardSlots[cardIndex]), LevelLocals.BBFL_NOHIT, 0, "");
+			level.SetBillboardGroup(sacc, mFanGroup);
+			mSubAccents.Push(sacc);
+
+			// Which hand already holds this one -- and in a fan of _2 clones
+			// that is the difference between "take it" and "swap hands".
+			int swhere = heldWhere(variants[i]);
+			int smid = 0;
+			if (swhere != 0 && cv("wr_marker", 1.0) > 0.0)
+			{
+				smid = level.AddBillboardPersistent(
+					(0, 0, 0), 0.6, 0.6, 0, 0,
+					LevelLocals.BBF_FIXED, plateKind(), 15,
+					(swhere == 2) ? COLOR_MARK_OTHER : COLOR_MARK_MINE,
+					LevelLocals.BBFL_NOHIT, 0, "");
+				level.SetBillboardGroup(smid, mFanGroup);
+			}
+			mSubMarks.Push(smid);
 
 			TextureID icon = iconFor(held);
 			double sw = ICON_W_FRAC, sh = ICON_H_FRAC;
@@ -760,26 +802,36 @@ class wr_Rig : EventHandler
 			// count under each is often the only thing telling them apart.
 			int srounds = ammoLeft(held);
 			int said = 0;
+			double saw = AMMO_W_FRAC;
 			if (cv("wr_ammo", 1.0) > 0.0 && srounds >= 0)
 			{
 				// Same payload and same text rule as a ring card. A subcard is a
 				// weapon like any other and there is no reason for its readout
 				// to be a different thing.
+				string stext = ammoText(held, srounds);
+				saw = readoutAspect(stext);
+
 				said = level.AddBillboardPersistent(
 					(0, 0, 0), 3.5, 2.5, 0, 0,
 					LevelLocals.BBF_FIXED, readoutKind(), srounds,
 					srounds > 0 ? COLOR_AMMO : COLOR_AMMO_DRY,
-					LevelLocals.BBFL_NOHIT, 0, ammoText(held, srounds));
+					LevelLocals.BBFL_NOHIT, 0, stext);
 				level.SetBillboardGroup(said, mFanGroup);
 			}
 			mSubAmmos.Push(said);
+			mSubAmmoW.Push(saw);
 
+			// Measured, like a ring card's. Clones tend to have the LONGEST
+			// names in a set -- "Plasma Rifle" becomes "Plasma Rifle Mk II" --
+			// so the fan is where an unfitted label overflows first.
+			string stag = held.GetTag();
 			int slid = level.AddBillboardPersistent(
 				(0, 0, 0), 3.5, 2.5, 0, 0,
 				LevelLocals.BBF_FIXED, LevelLocals.BB_TEXT, 0,
-				COLOR_LABEL, LevelLocals.BBFL_NOHIT, 0, held.GetTag());
+				COLOR_LABEL, LevelLocals.BBFL_NOHIT, 0, stag);
 			level.SetBillboardGroup(slid, mFanGroup);
 			mSubLabels.Push(slid);
+			mSubLabelH.Push(fitLabel(stag, panelWNow() * LABEL_FIT_FRAC, panelHNow()));
 		}
 
 		// Unfold. Same declaration-not-a-state-machine deal as the ring.
@@ -808,6 +860,14 @@ class wr_Rig : EventHandler
 		{
 			if (mSubLabels[i]) level.RemoveBillboard(mSubLabels[i]);
 		}
+		for (int i = 0; i < mSubAccents.Size(); ++i)
+		{
+			if (mSubAccents[i]) level.RemoveBillboard(mSubAccents[i]);
+		}
+		for (int i = 0; i < mSubMarks.Size(); ++i)
+		{
+			if (mSubMarks[i]) level.RemoveBillboard(mSubMarks[i]);
+		}
 		// The group goes with its members, or the next fan inherits a live
 		// animation from the last one.
 		if (mFanGroup != 0) level.RemoveBillboardGroup(mFanGroup);
@@ -819,6 +879,11 @@ class wr_Rig : EventHandler
 		mSubLabels.Clear();
 		mSubIconW.Clear();
 		mSubIconH.Clear();
+		mSubAccents.Clear();
+		mSubMarks.Clear();
+		mSubBase.Clear();
+		mSubAmmoW.Clear();
+		mSubLabelH.Clear();
 		mSubTypes.Clear();
 		mExpanded = -1;
 	}
@@ -898,7 +963,18 @@ class wr_Rig : EventHandler
 		}
 
 		int sub = subIndexOf(id);
-		if (sub >= 0) level.UpdateBillboard(id, 0, lit ? COLOR_HOVER : COLOR_SUB);
+		if (sub >= 0)
+		{
+			// Back to the subcard's OWN resting colour, not the shared one --
+			// the same fix the ring cards needed, and it matters more here:
+			// hovering a dry clone and moving off it would repaint it as a
+			// loaded one, in the exact place you are trying to tell clones
+			// apart.
+			int srest = (sub < mSubBase.Size()) ? mSubBase[sub] : COLOR_SUB;
+			level.UpdateBillboard(id, 0, lit ? COLOR_HOVER : srest);
+			level.SetBillboardGradient(id,
+				lit ? GRAD_HOVER : (srest == COLOR_DRY ? GRAD_DRY : GRAD_IDLE));
+		}
 	}
 
 	private int cardIndexOf(int id) const
@@ -962,17 +1038,49 @@ class wr_Rig : EventHandler
 				                                    panelH * mSubIconH[i]);
 				level.OrientBillboard(mSubIcons[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
 			}
+			// The parent slot's stripe along the top edge.
+			if (i < mSubAccents.Size() && mSubAccents[i] != 0)
+			{
+				level.MoveBillboard(mSubAccents[i],
+					pos + lift + (0, 0, panelH * (0.5 - ACCENT_H_FRAC * 0.5)));
+				level.ResizeBillboard(mSubAccents[i], panelW, panelH * ACCENT_H_FRAC);
+				level.OrientBillboard(mSubAccents[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+			}
+
 			if (i < mSubLabels.Size() && mSubLabels[i] != 0)
 			{
-				level.MoveBillboard(mSubLabels[i], pos + lift - (0, 0, panelH * 0.22));
-				level.ResizeBillboard(mSubLabels[i], panelW, panelH * LABEL_HEIGHT_FRAC);
+				bool slit = (mSubIds[i] == mHovered);
+
+				level.MoveBillboard(mSubLabels[i], pos + lift - (0, 0, panelH * 0.13));
+				level.ResizeBillboard(mSubLabels[i], panelW,
+				                                     panelH * mSubLabelH[i]);
 				level.OrientBillboard(mSubLabels[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+
+				// The same neon the ring gets. A fan is a place you are choosing
+				// between near-identical things, so "which one is under the
+				// pointer" is worth more here than anywhere else.
+				double sg = cv("wr_glow", 1.6);
+				level.SetBillboardGlow(mSubLabels[i], slit ? clamp(GLOW_R * sg, 0.0, 1.0) : 0.0,
+				                                      slit ? GLOW_S * sg : 0.0);
 			}
+
 			if (i < mSubAmmos.Size() && mSubAmmos[i] != 0)
 			{
-				level.MoveBillboard(mSubAmmos[i], pos + lift - (0, 0, panelH * 0.40));
-				level.ResizeBillboard(mSubAmmos[i], panelW, panelH * AMMO_H_FRAC);
+				level.MoveBillboard(mSubAmmos[i], pos + lift - (0, 0, panelH * 0.37));
+				level.ResizeBillboard(mSubAmmos[i], panelW * mSubAmmoW[i],
+				                                    panelH * AMMO_H_FRAC);
 				level.OrientBillboard(mSubAmmos[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+			}
+
+			// The held mark, same corner as a ring card's.
+			if (i < mSubMarks.Size() && mSubMarks[i] != 0)
+			{
+				level.MoveBillboard(mSubMarks[i],
+					pos + lift * 1.5
+					    + viewRight * (panelW * 0.40)
+					    + (0, 0, panelH * 0.34));
+				level.ResizeBillboard(mSubMarks[i], panelW * 0.10, panelH * 0.13);
+				level.OrientBillboard(mSubMarks[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
 			}
 		}
 	}
@@ -1279,6 +1387,11 @@ class wr_Rig : EventHandler
 
 	// Which plate payload the cards are built from, and the shape numbers that
 	// only the solved one reads.
+	// The live card size, for the places that need it OUTSIDE layout() -- the
+	// label fitter runs at spawn, before layout has computed anything.
+	private static double panelWNow() { return cv("wr_panel_w", 3.5) * cv("wr_scale", 1.0); }
+	private static double panelHNow() { return cv("wr_panel_h", 2.5) * cv("wr_scale", 1.0); }
+
 	private static int plateKind()
 	{
 		return (cv("wr_sdf", 1.0) > 0.0) ? LevelLocals.BB_SDFPANEL
