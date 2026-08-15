@@ -1913,6 +1913,19 @@ class wr_Rig : EventHandler
 
 		++mOpenTics;
 
+		// RE-ASSERT THE FIST, EVERY TIC.
+		//
+		// This is not belt and braces. A_WeaponReady runs in the weapon's Ready
+		// state every single tic and writes the psprite's sprite and frame back
+		// to the real gun, so a swap applied once at open survives for exactly
+		// one tic and is then gone. It has to happen HERE, after the playsim has
+		// ticked the psprite, which is what WorldTick is -- doing it any earlier
+		// just gets overwritten again.
+		//
+		// The design said so from the start and the call was never wired in,
+		// which is why the hand has never once been visible.
+		holdFistLook(pmo);
+
 		layout(pmo);
 
 		// CURSOR GAIN.
