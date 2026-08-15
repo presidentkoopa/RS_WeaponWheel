@@ -2017,48 +2017,7 @@ class wr_Rig : EventHandler
 			if (i < mCardX.Size()) { mCardX[i] = pos.X; mCardY[i] = pos.Y; mCardZ[i] = pos.Z; }
 
 
-			// FOCUS. Cards you are not pointing at step back.
-			//
-			// Only once something IS hovered -- dimming the whole ring the
-			// moment it opens would make it look like it failed to load. Eight
-			// cards competing equally for your eye is the problem; seven quiet
-			// ones and a lit one is the fix, and it costs one alpha per card.
-			double cardAlpha = 1.0;
-			if (mHovered != 0 && !lit) cardAlpha = clamp(cv("wr_dim", 0.55), 0.05, 1.0);
 
-			fade(mIds.Size() > i ? mPlates[i] : 0, cardAlpha);
-			if (i < mFaces.Size())   fade(mFaces[i], cardAlpha);
-			if (i < mAccents.Size()) fade(mAccents[i], cardAlpha);
-			if (i < mIcons.Size())   fade(mIcons[i], cardAlpha);
-			if (i < mGauges.Size())  fade(mGauges[i], cardAlpha);
-			if (i < mLabels.Size())  fade(mLabels[i], cardAlpha);
-			if (i < mAmmos.Size())   fade(mAmmos[i], cardAlpha);
-			if (i < mMarks.Size())   fade(mMarks[i], cardAlpha);
-
-			// The model floats a little in FRONT of its plate, so the card backs
-			// it rather than intersecting it, and it takes the same pulse and
-			// the same fade as everything else on the card.
-			if (i < mModels.Size() && mModels[i] != null)
-			{
-				double ms = cv("wr_model_scale", 0.16) * pulse;
-				mModels[i].SetOrigin(pos + lift * cv("wr_model_lift", 3.0), true);
-				mModels[i].Scale = (ms, ms);
-				mModels[i].Alpha = cardAlpha;
-				mModels[i].A_SetRenderStyle(cardAlpha, STYLE_Translucent);
-			}
-
-			// The held-weapon mark, pinned to the card's top-right corner.
-			if (i < mMarks.Size() && mMarks[i] != 0)
-			{
-				level.MoveBillboard(mMarks[i],
-					pos + lift * 1.5
-					    + viewRight * (panelW * 0.40 * pulse)
-					    + (0, 0, panelH * 0.34 * pulse));
-				level.ResizeBillboard(mMarks[i], panelW * 0.10 * pulse,
-				                                 panelH * 0.13 * pulse);
-				level.OrientBillboard(mMarks[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
-				level.RollBillboard(mMarks[i], roll);
-			}
 
 			// The group carries the whole card's origin, so scale happens about
 			// the card's own centre rather than about the world origin.
@@ -2097,6 +2056,56 @@ class wr_Rig : EventHandler
 			{
 				double amp = cv("wr_pulse", 0.10);
 				pulse = 1.0 + amp + amp * sin(mHoverTics * PULSE_SPEED);
+			}
+
+			// FOCUS. Cards you are not pointing at step back.
+			//
+			// Only once something IS hovered -- dimming the whole ring the
+			// moment it opens would make it look like it failed to load. Eight
+			// cards competing equally for your eye is the problem; seven quiet
+			// ones and a lit one is the fix, and it costs one alpha per card.
+			//
+			// HAS to be below lit and pulse, which is where it went wrong the
+			// first time: it was written next to the position bookkeeping at the
+			// top of the loop, forty lines before either of them exists.
+			double cardAlpha = 1.0;
+			if (mHovered != 0 && !lit) cardAlpha = clamp(cv("wr_dim", 0.55), 0.05, 1.0);
+
+			if (i < mPlates.Size())  fade(mPlates[i], cardAlpha);
+			if (i < mFaces.Size())   fade(mFaces[i], cardAlpha);
+			if (i < mAccents.Size()) fade(mAccents[i], cardAlpha);
+			if (i < mIcons.Size())   fade(mIcons[i], cardAlpha);
+			if (i < mGauges.Size())  fade(mGauges[i], cardAlpha);
+			if (i < mLabels.Size())  fade(mLabels[i], cardAlpha);
+			if (i < mAmmos.Size())   fade(mAmmos[i], cardAlpha);
+			if (i < mMarks.Size())   fade(mMarks[i], cardAlpha);
+
+			// The model floats a little in FRONT of its plate, so the card backs
+			// it rather than intersecting it, and it takes the same pulse and
+			// the same fade as everything else on the card.
+			if (i < mModels.Size() && mModels[i] != null)
+			{
+				double ms = cv("wr_model_scale", 0.16) * pulse;
+
+				// Through a local: SetOrigin wants a modifiable value and an
+				// expression is not one.
+				Vector3 mp = pos + lift * cv("wr_model_lift", 3.0);
+				mModels[i].SetOrigin(mp, true);
+				mModels[i].Scale = (ms, ms);
+				mModels[i].A_SetRenderStyle(cardAlpha, STYLE_Translucent);
+			}
+
+			// The held-weapon mark, pinned to the card's top-right corner.
+			if (i < mMarks.Size() && mMarks[i] != 0)
+			{
+				level.MoveBillboard(mMarks[i],
+					pos + lift * 1.5
+					    + viewRight * (panelW * 0.40 * pulse)
+					    + (0, 0, panelH * 0.34 * pulse));
+				level.ResizeBillboard(mMarks[i], panelW * 0.10 * pulse,
+				                                 panelH * 0.13 * pulse);
+				level.OrientBillboard(mMarks[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+				level.RollBillboard(mMarks[i], roll);
 			}
 
 			if (i < mPlates.Size())
@@ -3034,11 +3043,15 @@ class wr_Rig : EventHandler
 
 		if (mLight == null)
 		{
-			mLight = Actor(Actor.Spawn("WR_CardLight", cardPos(card), NO_REPLACE));
+			// Through a local, not straight from cardPos(): SetOrigin and Spawn
+			// want a modifiable value, and a function's return is not one.
+			Vector3 lp = cardPos(card);
+			mLight = Actor(Actor.Spawn("WR_CardLight", lp, NO_REPLACE));
 			if (mLight == null) return;
 		}
 
-		mLight.SetOrigin(cardPos(card), true);
+		Vector3 here = cardPos(card);
+		mLight.SetOrigin(here, true);
 
 		double breathe = 1.0 + 0.12 * sin(mHoverTics * PULSE_SPEED);
 		int r1 = int(cv("wr_light_size", 44.0) * breathe);
@@ -3315,7 +3328,8 @@ class wr_Rig : EventHandler
 		int hitCard = cardIndexOf(mHovered);
 		if (hitCard >= 0 && hitCard < mCardX.Size())
 		{
-			sparks(cardPos(hitCard), sparkColor(hitCard), dry ? 0.4 : 1.0);
+			Vector3 burstAt = cardPos(hitCard);
+			sparks(burstAt, sparkColor(hitCard), dry ? 0.4 : 1.0);
 
 			// And it flips as it folds away. Roll is a real axis now, and the
 			// group collapse keeps the billboards alive long enough to see it.
