@@ -112,3 +112,35 @@ user bool  wr_ammo     = true;
 // single summon, and a line of console for something that worked is noise.
 user bool  wr_debug    = false;
 
+
+
+// THE ROOM
+//
+// These three are SINGLE GLOBAL SLOTS in the engine with no way to read them
+// back, so while the rig holds one, a co-loaded mod using the same slot loses
+// it. That is survivable because the engine's contract for all three is
+// "publish it every tic while it is on" -- so anything else using them
+// re-publishes and recovers by itself the moment the rig lets go. Each is
+// separately switchable anyway.
+
+// The laser gets air in it: a raymarched cone laid along the same ray the
+// engine laser already points down, with dust drifting through it. 0 is off.
+user bool  wr_vbeam         = true;
+user float wr_vbeam_inner   = 1.2;    // hot core radius
+user float wr_vbeam_outer   = 5.0;    // where it has faded to nothing
+user float wr_vbeam_density = 0.55;
+user float wr_vbeam_dust    = 0.5;
+
+// A ring of light washing outward across the room when the rig opens, tested
+// per pixel against world position so it crosses floor, wall and ceiling as one
+// unbroken line. Tics it takes; 0 is off.
+user float wr_sweep         = 14.0;
+user float wr_sweep_reach   = 340.0;  // how far it travels, map units
+user float wr_sweep_bright  = 1.4;
+
+// Mist for the cards to sit in, tinted to whatever slot you are hovering.
+// OFF by default, and it is the rude one: a map may have authored its own fog
+// slab, and this takes it for as long as the rig is up.
+user float wr_fog           = 0.0;    // density; 0 is off
+user float wr_fog_rise      = 6.0;    // how far above the ring its surface sits
+user float wr_fog_scatter   = 0.8;    // lets the beam light the mist

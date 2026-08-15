@@ -103,6 +103,15 @@ class wr_Rig : EventHandler
 	// racing each other to be freed.
 	bool mHardClose;
 
+	// Whether the fog slab is ours right now. Tracked rather than assumed,
+	// because there is no getter and clearing one we never took would wipe a
+	// map's own mist.
+	bool mFogHeld;
+	bool mBeamHeld;
+	bool mSweepHeld;
+	bool mBeamHeld;
+	bool mSweepHeld;
+
 	// The fan that opens out of a multi-weapon slot.
 	Array<int>   mSubIds;
 	Array<int>   mSubIcons;
@@ -304,6 +313,7 @@ class wr_Rig : EventHandler
 			engineLaser(false);
 			level.SuppressVRInput(false);
 			bulletTime(false);
+			releaseDecor();
 
 			mOpen     = false;
 			mHovered  = 0;
@@ -370,6 +380,7 @@ class wr_Rig : EventHandler
 		engineLaser(false);
 		level.SuppressVRInput(false);
 		bulletTime(false);
+		releaseDecor();
 
 		collapseSlot();
 
@@ -1997,6 +2008,8 @@ class wr_Rig : EventHandler
 		// player's laser forever.
 		level.SetVRLaserRange(hit != 0 ? reach : 0);
 
+		decor(pmo, org, dir, reach, hit != 0);
+
 
 		// Committing is driven from InputProcess instead, so the fire press can
 		// be swallowed before it reaches the weapon. Reading cmd.buttons here
@@ -2094,6 +2107,132 @@ class wr_Rig : EventHandler
 			// turned haptics off globally is not overridden by a mod cvar.
 			level.VRHaptic(mPokeHand, amp * gain, ms);
 		}
+	}
+
+	// The slot colour of whatever is under the pointer, or the ring's own idle
+	// colour when nothing is.
+	private color hoverColor() const
+	{
+		int card = cardIndexOf(mHovered);
+		if (card >= 0 && card < mCardSlots.Size()) return slotColor(mCardSlots[card]);
+		return COLOR_BEAM_IDLE;
+	}
+
+	// THE ROOM REACTS.
+	//
+	// Everything above this line dresses the CARDS. This dresses the space they
+	// are in, which is where the remaining difference was: a ring that lights
+	// the wall behind it reads as an object in the room, and a ring that does
+	// not reads as a picture pasted over one.
+	//
+	// All three are SINGLE GLOBAL SLOTS with no getters, so this cannot read
+	// what a co-loaded mod put there and politely put it back. What makes that
+	// survivable is the engine's own contract for them -- "publish it each tic
+	// while the light is on" -- so anything else using them is re-publishing
+	// every tic too and recovers by itself the moment the rig lets go. It is
+	// still someone else's slot, so every one of these is behind its own cvar.
+	private void decor(PlayerPawn pmo, Vector3 org, Vector3 dir, double reach, bool onCard)
+	{
+		color tint = hoverColor();
+
+		// THE LASER GETS AIR IN IT.
+		//
+		// The engine laser is still the pointer -- it does the hit maths and
+		// terminates on the card. This is a raymarched cone laid along the same
+		// ray, so the beam has dust drifting through it instead of being a line
+		// with nothing between it and the wall.
+		if (cv("wr_vbeam", 1.0) > 0.0)
+		{
+			// inner is the hot core, outer where it has faded to nothing;
+			// falloff above 1 concentrates the light near the lens, which is
+			// what stops a long beam looking like a strip light.
+			level.SetVolumetricBeam(org, dir, tint,
+				cv("wr_vbeam_inner", 1.2),
+				cv("wr_vbeam_outer", 5.0),
+				reach,
+				cv("wr_vbeam_density", 0.55) * (onCard ? 1.35 : 1.0),
+				2.2,
+				cv("wr_vbeam_dust", 0.5), 0.035, 0.4);
+			mBeamHeld = true;
+		}
+		else if (mBeamHeld)
+		{
+			// Switched off with the rig still open. Every cvar here is live, so
+			// each of these needs its own way back out.
+			level.ClearVolumetricBeam();
+			mBeamHeld = false;
+		}
+
+		// A RING OF LIGHT WASHES THE ROOM WHEN IT OPENS.
+		//
+		// Mode 1 is a cylinder from the origin, tested per pixel against world
+		// position on every surface -- so it crosses floor, wall and ceiling as
+		// one unbroken line rather than lighting sectors. Nothing per-sector can
+		// do that, and it is the reason this reads as the rig emitting rather
+		// than as a screen effect.
+		//
+		// It runs once, on open, and gets out of the way.
+		double sweepTics = cv("wr_sweep", 14.0);
+		if (sweepTics > 0.0)
+		{
+			if (mOpenTics <= sweepTics)
+			{
+				double t = mOpenTics / sweepTics;
+
+				level.SetSweepOrigin(1, pmo.Pos + (0, 0, pmo.height * 0.5), 1);
+				level.SetSweepBand(0,
+					t * cv("wr_sweep_reach", 340.0),   // radius, outward
+					18.0 + t * 40.0,                   // thickness, spreading
+					0.55,
+					tint,
+					(1.0 - t) * (1.0 - t) * cv("wr_sweep_bright", 1.4));
+				mSweepHeld = true;
+			}
+			else if (mSweepHeld)
+			{
+				// Let go the tic after it finishes rather than holding a dead
+				// band at zero intensity for as long as the rig is up.
+				level.ClearSweep();
+				mSweepHeld = false;
+			}
+		}
+		else if (mSweepHeld)
+		{
+			level.ClearSweep();
+			mSweepHeld = false;
+		}
+
+		// MIST THE CARDS SIT IN, off by default.
+		//
+		// This is the one that is genuinely rude: a map or another mod may have
+		// authored its own fog slab, and taking it means their mist changes for
+		// as long as the rig is open. Worth having, not worth defaulting to.
+		double fog = cv("wr_fog", 0.0);
+		if (fog > 0.0)
+		{
+			level.SetFogSlab(mAnchor.Z + cv("wr_fog_rise", 6.0), fog, 0.6,
+			                 cv("wr_fog_scatter", 0.8), tint);
+			mFogHeld = true;
+		}
+		else if (mFogHeld)
+		{
+			level.ClearFogSlab();
+			mFogHeld = false;
+		}
+	}
+
+	// Hands back only what was actually TAKEN.
+	//
+	// The first version cleared all three unconditionally, which is wrong in a
+	// specific and rude way: with wr_sweep off, the rig never touches the sweep
+	// slot, and clearing it on close would delete a co-loaded mod's sweep that
+	// this had nothing to do with. There is no getter to check with, so the
+	// flags are the only record of what is ours.
+	private void releaseDecor()
+	{
+		if (mBeamHeld)  { level.ClearVolumetricBeam(); mBeamHeld = false; }
+		if (mSweepHeld) { level.ClearSweep();          mSweepHeld = false; }
+		if (mFogHeld)   { level.ClearFogSlab();        mFogHeld = false; }
 	}
 
 	private void updateHover(int hit)
