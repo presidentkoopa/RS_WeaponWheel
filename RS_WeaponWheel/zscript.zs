@@ -1439,14 +1439,22 @@ class wr_Rig : EventHandler
 
 		if (w > boxW) h *= boxW / w;
 
-		// A two-line name is drawn at LINE height but occupies two of them, so
-		// its box has to be told that or the second line runs off the card.
-		// MeasureBillboardTextBlock is the only thing that knows the line pitch
-		// -- it is the renderer's rule, not a constant to multiply by.
+		// A WRAPPED NAME STILL RETURNS THE PER-LINE HEIGHT.
+		//
+		// BB_TEXT's height is the height of ONE line -- it stacks the rest
+		// itself. Returning the whole block's height made every line that tall,
+		// so a two-line name drew at double size and ran off both edges of its
+		// card, which is exactly what it did.
+		//
+		// The block measurement is still needed, but to SHRINK with: if two
+		// lines at this size are taller than the name's share of the card, the
+		// per-line height comes down until they fit.
 		if (text.IndexOf("\n") >= 0)
 		{
 			Vector2 blk = level.MeasureBillboardTextBlock(text, h, 0);
-			if (blk.Y > 0.0) return blk.Y / panelH;
+			double room = panelH * LABEL_BLOCK_FRAC;
+
+			if (blk.Y > room && blk.Y > 0.0) h *= room / blk.Y;
 		}
 
 		return h / panelH;
@@ -1638,7 +1646,10 @@ class wr_Rig : EventHandler
 			// and the width follows it back down.
 			// Capped to the artwork band, not the whole canvas: the lower third is
 			// the readouts and a sprite that reaches it is a sprite behind a label.
-			double hcap = READOUT_TOP - PIP_TOP - 4;
+			// The sprite may use the whole artwork band. It was capped to the gap
+			// between the pips and the readout line, which is a smaller number and
+			// left every gun drawn as a thin strip.
+			double hcap = ICON_BOX_H * 1.35;
 			if (ih > hcap) { ih = hcap; iw = ih * aspect; }
 
 			// DTA_CENTEROFFSET IS THE WHOLE REASON THE SPRITES WERE MISSING.
@@ -2324,11 +2335,20 @@ class wr_Rig : EventHandler
 			// Still BBF_FIXED and still solved here rather than by BBF_CAMERA:
 			// camera-facing billboards are tested against the wrong orientation
 			// by the hit queries, which is the bug this mod was built to avoid.
+			// The yaw is the direction the FACE POINTS, and it points AT the eye
+			// -- so it is atan2 of the card-to-eye vector, not of its negation.
+			//
+			// Getting that backwards did not merely turn the cards around. Every
+			// label, icon, pip and painted face is offset along `lift`, which is
+			// built from this yaw, so flipping it pushed all of them BEHIND the
+			// plate where the plate hid them. Seven cards rendered as seven
+			// blank rectangles and the debug line still read faces 7/7, because
+			// they were painted perfectly and put in the wrong place.
 			double faceYaw = viewYaw + 180;
 			if (cv("wr_facing", 1.0) > 0.0)
 			{
 				Vector3 toMe = eye - pos;
-				if (toMe.Length() > 0.01) faceYaw = atan2(-toMe.Y, -toMe.X);
+				if (toMe.Length() > 0.01) faceYaw = atan2(toMe.Y, toMe.X);
 			}
 
 			// THE CARD TUMBLES IN.
@@ -3769,7 +3789,16 @@ class wr_Rig : EventHandler
 	const GLOW_STRENGTH = 1.4;
 
 	const LABEL_LIFT        = 0.6;
-	const LABEL_HEIGHT_FRAC = 0.34;
+
+	// ONE line of the name, as a fraction of the card. 0.34 was set when a name
+	// was always one line and the card had nothing else on it; against a slot
+	// stripe, artwork, pips and a bezel it reads as shouting.
+	const LABEL_HEIGHT_FRAC = 0.22;
+
+	// And how much of the card's HEIGHT the whole name may occupy once wrapped.
+	// Two lines at the full per-line size is taller than the space between the
+	// artwork and the bezel, so this is what they get shrunk to fit.
+	const LABEL_BLOCK_FRAC  = 0.34;
 
 	// A card with nothing left in it. Dark red rather than grey: grey reads as
 	// disabled, and this weapon is not disabled -- you can absolutely select it,
@@ -3809,8 +3838,11 @@ class wr_Rig : EventHandler
 	const FACE_BANDS  = 5;     // gradient steps
 	const FACE_ACCENT = 6;     // slot stripe height
 	const ICON_BOX_W  = 96.0;
-	const ICON_BOX_H  = 32.0;
-	const ICON_TOP    = 22.0;
+	// The artwork band. Sits under the pips and above the readout line, and it
+	// is the largest single thing on the card because the picture is what you
+	// recognise a weapon by -- the name is confirmation, not identification.
+	const ICON_BOX_H  = 40.0;
+	const ICON_TOP    = 20.0;
 	// CANVAS LAYOUT, top to bottom, and it has to dodge the billboards.
 	//
 	// The name and the segment readout are drawn as separate field billboards
