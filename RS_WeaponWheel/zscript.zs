@@ -1934,8 +1934,9 @@ class wr_Rig : EventHandler
 				// and a sampled texture has nothing out there to read. On
 				// BB_PANEL the call is simply ignored, so the switch needs no
 				// branch here.
-				level.SetBillboardGlow(mPlates[i], lit ? GLOW_R * 0.8 : 0.0,
-				                                   lit ? GLOW_S * 0.7 : 0.0);
+				double g = cv("wr_glow", 1.0);
+				level.SetBillboardGlow(mPlates[i], lit ? clamp(GLOW_R * g, 0.0, 1.0) : 0.0,
+				                                   lit ? GLOW_S * g : 0.0);
 			}
 
 			// The slot bar, pinned to the card's top edge.
@@ -1985,8 +1986,9 @@ class wr_Rig : EventHandler
 
 				// Neon, and only on the one you are pointing at. A halo on every
 				// card is a blur; a halo on one is the answer to "which".
-				level.SetBillboardGlow(mLabels[i], lit ? GLOW_R : 0.0,
-				                                   lit ? GLOW_S : 0.0);
+				double lg = cv("wr_glow", 1.0);
+				level.SetBillboardGlow(mLabels[i], lit ? clamp(GLOW_R * lg, 0.0, 1.0) : 0.0,
+				                                   lit ? GLOW_S * lg : 0.0);
 			}
 
 			// The proportion, as a bar. Read before the number is.

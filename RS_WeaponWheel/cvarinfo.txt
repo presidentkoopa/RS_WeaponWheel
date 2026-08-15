@@ -195,3 +195,10 @@ user bool  wr_canvas_shadow = true;
 
 // One dimmed row every three, over the whole face. 0 is off.
 user float wr_canvas_scan   = 0.22;
+
+// Halo strength on the card you are pointing at, as a multiplier. This is the
+// one thing the distance-field payloads can do that a sampled texture cannot --
+// a glow is placed by reading the field OUTSIDE the shape, and a texture has
+// nothing out there to read. It only ever fires on the hovered card, which is
+// why it is easy to miss entirely. Crank it to see what SDF is for.
+user float wr_glow = 1.6;

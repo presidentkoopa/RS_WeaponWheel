@@ -49,6 +49,9 @@ OptionMenu wr_Options
 	// Off falls back to the sampled plate: cheaper, blurs up close, and cannot
 	// glow -- a halo needs a distance field to read past the shape's edge.
 	Option "Sharp plates (SDF)",        "wr_sdf",          "OnOff"
+	// Only fires on the card under your pointer. The one thing a sampled plate
+	// cannot do at all -- a halo needs a field to read past the shape edge.
+	Slider "  Hover glow",              "wr_glow",          0.0, 4.0, 0.1, 1
 	Slider "Corner rounding",           "wr_plate_radius", 0, 15, 1, 0
 	Slider "Plate border",              "wr_plate_border", 0, 15, 1, 0
 	// The other way to build a card: artwork painted into a texture in 2D pixel
