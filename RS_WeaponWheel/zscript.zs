@@ -1273,6 +1273,32 @@ class wr_Rig : EventHandler
 	//
 	// Cheap enough: a few dozen queued 2D ops per card at 35Hz, for at most
 	// twelve cards, and nothing here touches the playsim.
+	// THE CANVAS SAMPLES UPSIDE DOWN.
+	//
+	// A canvas texture is rendered into an FBO and then read back as an ordinary
+	// texture, and the V axis flips somewhere between those two -- so a face
+	// painted the obvious way arrives on the card mirrored top to bottom. It is
+	// invisible until there is content: an empty canvas looks identical either
+	// way up, which is why this survived the first two passes and only showed
+	// itself as an upside-down revolver.
+	//
+	// Everything below authors in NATURAL coordinates -- y=0 is the top of the
+	// card as you look at it -- and these three convert. Doing it here rather
+	// than pre-flipping every number means the layout still reads as the layout.
+	private static int fy(int y) { return FACE_H - y; }
+
+	// Clear takes a top and a bottom, and flipping swaps which is which.
+	private void clearFlipped(Canvas c, int l, int t, int r, int b, color col)
+	{
+		c.Clear(l, fy(b), r, fy(t), col);
+	}
+
+	// Dim takes a top-left and a size, so only the origin moves.
+	private void dimFlipped(Canvas c, color col, double amt, int x, int y, int w, int h)
+	{
+		c.Dim(col, amt, x, fy(y + h), w, h);
+	}
+
 	private TextureID paintFace(int pool, Weapon held, int slot, bool dry)
 	{
 		TextureID none;
@@ -1298,12 +1324,12 @@ class wr_Rig : EventHandler
 			int y1 = FACE_H * (b + 1) / FACE_BANDS;
 
 			double k = 1.0 - 0.55 * (double(b) / (FACE_BANDS - 1));
-			canvas.Clear(0, y0, FACE_W, y1, dim(bg, k));
+			clearFlipped(canvas, 0, y0, FACE_W, y1, dim(bg, k));
 		}
 
 		// The slot's colour along the top edge, same promise the accent bar
 		// makes on the composed card.
-		canvas.Clear(0, 0, FACE_W, FACE_ACCENT, slotColor(slot));
+		clearFlipped(canvas, 0, 0, FACE_W, FACE_ACCENT, slotColor(slot));
 
 		// THE GUN RUNS OFF THE EDGES.
 		//
@@ -1355,17 +1381,26 @@ class wr_Rig : EventHandler
 			// DTA_AlphaChannel with DTA_FillColor is the pair that gives a
 			// silhouette; DTA_FillColor alone stencils the colour but keeps the
 			// source's own shading, which is not a shadow.
+			// DTA_FLIPY AS WELL AS A FLIPPED POSITION.
+			//
+			// Two separate corrections and both are needed. Moving the sprite to
+			// fy(cy) puts it in the right PLACE on a canvas that samples upside
+			// down; flipping the image is what stops the revolver arriving
+			// barrel-up once it gets there. Fix only one and it is still wrong,
+			// just wrong differently.
+			//
+			// The shadow is offset DOWNWARD on screen, which is upward here.
 			if (cv("wr_canvas_shadow", 1.0) > 0.0)
 			{
-				canvas.DrawTexture(icon, false, cx + 3, cy + 3,
-					DTA_CenterOffset, true,
+				canvas.DrawTexture(icon, false, cx + 3, fy(int(cy)) - 3,
+					DTA_CenterOffset, true, DTA_FlipY, true,
 					DTA_DestWidth, int(iw), DTA_DestHeight, int(ih),
 					DTA_FillColor, 0x000000, DTA_AlphaChannel, true,
 					DTA_Alpha, 0.5);
 			}
 
-			canvas.DrawTexture(icon, false, cx, cy,
-				DTA_CenterOffset, true,
+			canvas.DrawTexture(icon, false, cx, fy(int(cy)),
+				DTA_CenterOffset, true, DTA_FlipY, true,
 				DTA_DestWidth, int(iw), DTA_DestHeight, int(ih));
 		}
 
@@ -1373,7 +1408,7 @@ class wr_Rig : EventHandler
 		// to be drawn as billboards. Without it a bled sprite runs straight
 		// under the text and the text becomes unreadable on exactly the weapons
 		// whose artwork works best.
-		canvas.Dim(0x000000, 0.62, 0, READOUT_TOP, FACE_W, FACE_H - READOUT_TOP);
+		dimFlipped(canvas, 0x000000, 0.62, 0, READOUT_TOP, FACE_W, FACE_H - READOUT_TOP);
 
 		// AMMO AS PIPS.
 		//
@@ -1415,7 +1450,7 @@ class wr_Rig : EventHandler
 				int x1 = x0 + pipW;
 				if (x1 > right) break;
 
-				canvas.Clear(x0, top, x1, bot,
+				clearFlipped(canvas, x0, top, x1, bot,
 					(p < lit) ? slotColor(slot) : dim(slotColor(slot), 0.18));
 			}
 		}
@@ -1430,14 +1465,14 @@ class wr_Rig : EventHandler
 		{
 			for (int y = 0; y < FACE_H; y += 3)
 			{
-				canvas.Dim(0x000000, scan, 0, y, FACE_W, 1);
+				dimFlipped(canvas, 0x000000, scan, 0, y, FACE_W, 1);
 			}
 		}
 
 		// The slot's colour as a corner chevron as well as the top stripe, so
 		// the ring is eight distinguishable SHAPES and not only eight hues --
 		// which is what survives being in the corner of your eye.
-		canvas.DrawThickLine(-4, 26, 30, -8, 9, slotColor(slot), 255);
+		canvas.DrawThickLine(-4, fy(26), 30, fy(-8), 9, slotColor(slot), 255);
 
 		// A hairline round the outside, so the artwork has an edge even when the
 		// plate behind it is switched off.
