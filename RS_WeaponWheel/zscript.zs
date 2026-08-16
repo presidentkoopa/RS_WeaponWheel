@@ -1262,18 +1262,48 @@ class wr_Rig : EventHandler
 		if (mFanGroup != 0) level.SetBillboardGroupOrigin(mFanGroup, cardPos);
 
 		// Three bearings fanned about the slot's own -- outward and to either
-		// side. Outward IS the free space, so a fan can never cross a neighbour;
-		// and the spread narrows as the ring gets busier so it still cannot when
-		// the neighbours are close.
+		// side. Outward IS the free space, so a fan can never cross a neighbour.
 		Vector3 lift = (cos(faceYaw), sin(faceYaw), 0) * LABEL_LIFT;
 
 		for (int i = 0; i < mSubIds.Size(); ++i)
 		{
-			double a = base + spread - (i % 3) * spread;
+			// Which ring out, and which of the three bearings on it.
+			int ring = i / 3;
+			int lane = i % 3;
 
 			// Anything past the first three stacks further out along the same
 			// bearing rather than wrapping back into the grid.
-			double reach = cellW * (1 + i / 3);
+			//
+			// FAN_FIRST_RING, not 1. The first ring used to sit one cell out,
+			// and at that radius three cards cannot be far enough apart in
+			// ANGLE without swinging so wide they reach a neighbouring slot --
+			// see the separation below. Starting a little further out buys the
+			// room to separate them properly, and costs a couple of units of
+			// reach.
+			double reach = cellW * (FAN_FIRST_RING + ring);
+
+			// THE ANGLE COMES FROM THE CARD'S OWN SIZE, not from the slot count.
+			//
+			// This is what made a fan draw as a tight overlapping grid. Two
+			// cards `sep` apart on a circle of radius `reach` are
+			// 2*reach*sin(sep/2) apart, so the angle that actually clears a
+			// card falls straight out of its width -- invert that and it is an
+			// asin. The old code used fanSpread() alone, which answers a
+			// completely different question: how much room is there before the
+			// next SLOT. On a nine-slot ring that is 18 degrees, and 18 degrees
+			// at one card of reach puts 4.2-unit-wide cards 1.6 units apart.
+			// They could not not overlap.
+			//
+			// fanSpread is still the FLOOR: on a sparse ring there is room to
+			// spare, and opening the fan wider than the minimum reads better
+			// than pinching it to exactly one card of clearance. It just can no
+			// longer push the cards into each other.
+			double need = 2.0 * asin(clamp(cellW / (2.0 * reach), 0.0, 1.0));
+			double sep  = max(spread, need);
+
+			// lane 0 above the bearing, 1 on it, 2 below -- the same order the
+			// single-expression version produced.
+			double a = base + (1 - lane) * sep;
 
 			Vector3 pos = cardPos
 			            + viewRight * (cos(a) * reach)
@@ -1378,6 +1408,12 @@ class wr_Rig : EventHandler
 	// How far a fan spreads either side of its slot's bearing. Capped at 45, but
 	// squeezed as the ring gets crowded so a fan cannot reach into the next
 	// slot's territory.
+	// The fan's MINIMUM spread, not its actual one. layoutExpansion widens
+	// past this whenever the cards would otherwise touch -- which on a busy
+	// ring is always, since this narrows exactly when the fan needs more
+	// room, not less. Kept because a sparse ring has space to spare and a
+	// fan opened wider than the bare minimum reads better than one pinched
+	// to a single card of clearance.
 	private static double fanSpread(int count)
 	{
 		if (count < 1) count = 1;
@@ -4309,6 +4345,16 @@ class wr_Rig : EventHandler
 
 	// How far a card tumbles on its way in, in degrees of roll.
 	const ARRIVE_ROLL = 26.0;
+
+	// Where a fan's innermost ring sits, in cells out from its parent card.
+	//
+	// Not 1. At one cell, three cards need about sixty degrees between them
+	// before they stop overlapping (see layoutExpansion), and a sixty-degree
+	// fan on a nine-slot ring comes within a card's width of the neighbouring
+	// slot. At 1.6 the same three need about thirty-six, which clears the
+	// neighbour by roughly two card widths. Trading a little reach for the
+	// angle to separate properly is the whole point of the number.
+	const FAN_FIRST_RING = 1.6;
 }
 
 // WR_TestPlayer lived here and now lives in RS_WeaponWheel_dev, because
