@@ -250,7 +250,11 @@ class wr_Rig : EventHandler
 	Array<double> mCardZ;
 
 	// Which card is flipping as the ring folds, and how long is left of it.
+	// Two indices, one clock: a ring index and a fan index are both just
+	// "0, 1, 2...", so one field could not say WHICH 2 was taken. Only one
+	// thing is ever taken per ring-open, so the clock stays shared.
 	int mFlipCard;
+	int mSubFlipCard;
 	int mFlipTics;
 
 	// THE DATA SHEET -- FAKE, ON PURPOSE, FOR NOW.
@@ -287,6 +291,18 @@ class wr_Rig : EventHandler
 	Array<double> mSubAmmoW;
 	Array<double> mSubLabelH;
 	Array<Class<Weapon> > mSubTypes;
+	// A SUBCARD IS A CARD, PART TWO. mSubBase is the DRY-AWARE resting colour
+	// (COLOR_DRY when empty) -- correct for the plate, wrong for a light or a
+	// spark burst, which should glow the weapon's true hue even when the gun
+	// they belong to is empty. mCardColor is main's equivalent raw array;
+	// this is that array's sub-card counterpart.
+	Array<int>    mSubColor;
+	// Reassembled the same way cardPos() reassembles mCardX/mCardY/mCardZ --
+	// ZScript dynamic arrays take integral base types only, so Array<Vector3>
+	// does not compile here any more than Array<Vector2> does for icon sizes.
+	Array<double> mSubX, mSubY, mSubZ;
+	Array<int>    mSubShadows;
+	Array<int>    mSubGauges;
 	int mExpanded;                // index into mIds, or -1
 	int mDwellTics;               // how long the hover has sat on one card
 
@@ -496,6 +512,7 @@ class wr_Rig : EventHandler
 		// silently did nothing. Reset lives in destroyPanels, next to the arrays
 		// it was built alongside.
 		mFlipCard  = -1;
+		mSubFlipCard = -1;
 		mFlipTics  = 0;
 		mLockTics  = int(cv("wr_locktics", 140));
 
@@ -1565,8 +1582,35 @@ class wr_Rig : EventHandler
 			// PER INSTANCE rather than reusing the parent card's colour.
 			// Dry still overrides tier: which one is empty is the more
 			// urgent fact when the question is which to grab.
+			// shue COMPUTED UNCONDITIONALLY, not inside the ternary.
+			//
+			// The line this replaced was `srest = sdry ? COLOR_DRY :
+			// int(cardColorFor(...))` -- a ternary short-circuits, so on a
+			// dry weapon cardColorFor() never ran at all and there was no
+			// raw hue left anywhere to give a light or a spark burst. Main
+			// cards keep exactly this pair (mBaseColor the dry-aware resting
+			// fill, mCardColor the raw hue underneath it) for the same
+			// reason: a dry card's light still glows the weapon's true
+			// colour even though its plate reads COLOR_DRY.
 			bool sdry = (cv("wr_ammo", 1.0) > 0.0 && ammoLoaded(held) == 0);
-			int srest = sdry ? COLOR_DRY : int(cardColorFor(held, mCardSlots[cardIndex]));
+			int shue  = int(cardColorFor(held, mCardSlots[cardIndex]));
+			int srest = sdry ? COLOR_DRY : shue;
+			mSubColor.Push(shue);
+
+			// THE DROP SHADOW, same reason a main card has one: a dark plate
+			// against a dark wall has almost no edge, and a fan sits in front
+			// of whatever the room happens to be exactly as much as the ring
+			// does.
+			int sshad = 0;
+			if (cv("wr_shadow", 0.5) > 0.0)
+			{
+				sshad = level.AddBillboardPersistent(
+					(0, 0, 0), 3.5, 2.5, 0, 0,
+					LevelLocals.BBF_FIXED, plateKind(), plateShape(),
+					0x000000, LevelLocals.BBFL_NOHIT, 0, "");
+				level.SetBillboardGroup(sshad, mFanGroup);
+			}
+			mSubShadows.Push(sshad);
 
 			int sid = level.AddBillboardPersistent(
 				(0, 0, 0), 3.5, 2.5, 0, 0,
@@ -1576,6 +1620,10 @@ class wr_Rig : EventHandler
 			level.SetBillboardGroup(sid, mFanGroup);
 			mSubIds.Push(sid);
 			mSubBase.Push(srest);
+
+			// Position written every tic in layoutExpansion(); pre-sized here so
+			// the array exists before the first layout pass touches it.
+			mSubX.Push(0); mSubY.Push(0); mSubZ.Push(0);
 
 			// The parent slot's colour, so a fan reads as belonging to the card
 			// it came out of rather than as loose panels near it.
@@ -1648,6 +1696,28 @@ class wr_Rig : EventHandler
 			mSubAmmos.Push(said);
 			mSubAmmoW.Push(saw);
 
+			// The same proportion as a bar. A subcard is never canvas-painted
+			// (item 2 of the parity pass, deferred -- wr_canvas is off by
+			// default and this is the wr_canvas-off path either way), so
+			// there is no canvasFace flag to guard against here the way the
+			// main build's gauge does.
+			//
+			// shue, not srest -- a dry weapon's gauge still reads its true
+			// colour, matching cardLight()'s own choice for the same reason:
+			// the plate says "empty" already, the gauge saying it a second
+			// time in the wrong colour would just be noise.
+			int sgau = 0;
+			double sfrac = ammoLoadedFrac(held);
+			if (cv("wr_ammo", 1.0) > 0.0 && sfrac >= 0.0)
+			{
+				sgau = level.AddBillboardPersistent(
+					(0, 0, 0), 3.5, 0.35, 0, 0,
+					LevelLocals.BBF_FIXED, LevelLocals.BB_BAR, int(sfrac * 100.0 + 0.5),
+					shue, LevelLocals.BBFL_NOHIT, 0, "");
+				level.SetBillboardGroup(sgau, mFanGroup);
+			}
+			mSubGauges.Push(sgau);
+
 			// Measured, like a ring card's. Clones tend to have the LONGEST
 			// names in a set -- "Plasma Rifle" becomes "Plasma Rifle Mk II" --
 			// so the fan is where an unfitted label overflows first.
@@ -1695,6 +1765,14 @@ class wr_Rig : EventHandler
 		{
 			if (mSubMarks[i]) level.RemoveBillboard(mSubMarks[i]);
 		}
+		for (int i = 0; i < mSubShadows.Size(); ++i)
+		{
+			if (mSubShadows[i]) level.RemoveBillboard(mSubShadows[i]);
+		}
+		for (int i = 0; i < mSubGauges.Size(); ++i)
+		{
+			if (mSubGauges[i]) level.RemoveBillboard(mSubGauges[i]);
+		}
 		// The group goes with its members, or the next fan inherits a live
 		// animation from the last one.
 		if (mFanGroup != 0) level.RemoveBillboardGroup(mFanGroup);
@@ -1709,6 +1787,10 @@ class wr_Rig : EventHandler
 		mSubAccents.Clear();
 		mSubMarks.Clear();
 		mSubBase.Clear();
+		mSubColor.Clear();
+		mSubX.Clear(); mSubY.Clear(); mSubZ.Clear();
+		mSubShadows.Clear();
+		mSubGauges.Clear();
 		mSubAmmoW.Clear();
 		mSubLabelH.Clear();
 		mSubTypes.Clear();
@@ -1892,49 +1974,134 @@ class wr_Rig : EventHandler
 			            + viewRight * (cos(a) * reach)
 			            + (0, 0, sin(a) * reach);
 
+			if (i < mSubX.Size()) { mSubX[i] = pos.X; mSubY[i] = pos.Y; mSubZ[i] = pos.Z; }
+
+			// A SUBCARD IS A CARD, PART THREE -- the same four live values a
+			// main card computes for itself once per tic (spawnPanels'
+			// layout loop: lit/pulse/cardAlpha/roll), computed once here
+			// instead of never. Everything below threads these four through,
+			// same shape as the main loop.
+			bool slit = (mSubIds[i] == mHovered);
+
+			double spulse = 1.0;
+			if (slit)
+			{
+				// A REDUCED amplitude, not main's straight wr_pulse. Main's
+				// default (~1.20x at peak) is tuned against cellW's own
+				// static margin; a fan's spacing (`need`, above) already
+				// solves for a card at its BASE size with the same margin a
+				// slot enjoys on the ring, and inflating the hovered one by
+				// a fifth on top of that is what closes the gap the spacing
+				// math just opened. Half the amplitude keeps the breathe
+				// readable without eating its own clearance.
+				double amp = cv("wr_pulse", 0.10) * 0.5;
+				spulse = 1.0 + amp + amp * sin(mHoverTics * PULSE_SPEED);
+			}
+
+			double subAlpha = 1.0;
+			if (mHovered != 0 && !slit) subAlpha = clamp(cv("wr_dim", 0.55), 0.05, 1.0);
+
+			// The take-confirmation flip. mSubFlipCard is commit()'s own
+			// field, separate from mFlipCard -- a main card and a sub-card
+			// index space overlap (both start at 0), so a single shared
+			// field could not tell "card 2 is flipping" from "sub 2 is
+			// flipping" apart. They share mFlipTics because only one thing
+			// is ever taken at a time.
+			double subRoll = 0.0;
+			if (i == mSubFlipCard && mFlipTics > 0 && CLOSE_TICS > 0)
+			{
+				double ft = 1.0 - (double(mFlipTics) / CLOSE_TICS);
+				subRoll += (1.0 - (1.0 - ft) * (1.0 - ft)) * cv("wr_flip", 360.0);
+			}
+
+			// THE SHADOW. wr_shadow_offset scaled to about half main's --
+			// confirmed necessary, not just cautious: `need` above solves
+			// clearance for a card's WIDTH only, with no margin held back
+			// for a shadow bleeding sideways at FAN_FIRST_RING, where up to
+			// three cards already sit at the minimum separation that keeps
+			// them off each other.
+			if (i < mSubShadows.Size() && mSubShadows[i] != 0)
+			{
+				double sso = cv("wr_shadow_offset", 0.35) * cv("wr_scale", 1.0) * 0.55;
+
+				level.MoveBillboard(mSubShadows[i],
+					pos - lift * 0.6 + viewRight * sso - (0, 0, sso));
+				level.ResizeBillboard(mSubShadows[i], panelW * spulse * 1.06,
+				                                      panelH * spulse * 1.06);
+				level.OrientBillboard(mSubShadows[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+				level.RollBillboard(mSubShadows[i], subRoll);
+				level.SetBillboardAlpha(mSubShadows[i],
+					clamp(cv("wr_shadow", 0.5), 0.0, 1.0) * subAlpha);
+			}
+
 			level.MoveBillboard(mSubIds[i], pos);
-			level.ResizeBillboard(mSubIds[i], panelW, panelH);
+			level.ResizeBillboard(mSubIds[i], panelW * spulse, panelH * spulse);
 			level.OrientBillboard(mSubIds[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+			level.RollBillboard(mSubIds[i], subRoll);
+
+			// THE PLATE GLOWS. Same call, same defaults as a main card's --
+			// on BB_PANEL (wr_sdf off) the engine ignores it, so this needs
+			// no branch for that case either.
+			double sg = cv("wr_glow", 1.0);
+			level.SetBillboardGlow(mSubIds[i], slit ? clamp(GLOW_R * sg, 0.0, 1.0) : 0.0,
+			                                   slit ? GLOW_S * sg : 0.0);
 
 			if (i < mSubIcons.Size() && mSubIcons[i] != 0)
 			{
-				level.MoveBillboard(mSubIcons[i], pos + lift + (0, 0, panelH * 0.20));
-				level.ResizeBillboard(mSubIcons[i], panelW * mSubIconW[i],
-				                                    panelH * mSubIconH[i]);
+				level.MoveBillboard(mSubIcons[i], pos + lift + (0, 0, panelH * 0.20 * spulse));
+				level.ResizeBillboard(mSubIcons[i], panelW * mSubIconW[i] * spulse,
+				                                    panelH * mSubIconH[i] * spulse);
 				level.OrientBillboard(mSubIcons[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+				level.RollBillboard(mSubIcons[i], subRoll);
 			}
 			// The parent slot's stripe along the top edge.
 			if (i < mSubAccents.Size() && mSubAccents[i] != 0)
 			{
 				level.MoveBillboard(mSubAccents[i],
-					pos + lift + (0, 0, panelH * (0.5 - ACCENT_H_FRAC * 0.5)));
-				level.ResizeBillboard(mSubAccents[i], panelW, panelH * ACCENT_H_FRAC);
+					pos + lift + (0, 0, panelH * (0.5 - ACCENT_H_FRAC * 0.5) * spulse));
+				level.ResizeBillboard(mSubAccents[i], panelW * spulse, panelH * ACCENT_H_FRAC * spulse);
 				level.OrientBillboard(mSubAccents[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+				level.RollBillboard(mSubAccents[i], subRoll);
 			}
 
 			if (i < mSubLabels.Size() && mSubLabels[i] != 0)
 			{
-				bool slit = (mSubIds[i] == mHovered);
-
-				level.MoveBillboard(mSubLabels[i], pos + lift - (0, 0, panelH * 0.07));
-				level.ResizeBillboard(mSubLabels[i], panelW,
-				                                     panelH * mSubLabelH[i]);
+				level.MoveBillboard(mSubLabels[i], pos + lift - (0, 0, panelH * 0.07 * spulse));
+				level.ResizeBillboard(mSubLabels[i], panelW * spulse,
+				                                     panelH * mSubLabelH[i] * spulse);
 				level.OrientBillboard(mSubLabels[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+				level.RollBillboard(mSubLabels[i], subRoll);
 
 				// The same neon the ring gets. A fan is a place you are choosing
 				// between near-identical things, so "which one is under the
 				// pointer" is worth more here than anywhere else.
-				double sg = cv("wr_glow", 1.6);
-				level.SetBillboardGlow(mSubLabels[i], slit ? clamp(GLOW_R * sg, 0.0, 1.0) : 0.0,
-				                                      slit ? GLOW_S * sg : 0.0);
+				//
+				// Default unified to 1.0, matching main's own label AND plate
+				// glow (both cv("wr_glow", 1.0)) -- this line previously read
+				// 1.6, a mismatch that only mattered if the cvar were ever
+				// missing from a config, which it never validly is.
+				double slg = cv("wr_glow", 1.0);
+				level.SetBillboardGlow(mSubLabels[i], slit ? clamp(GLOW_R * slg, 0.0, 1.0) : 0.0,
+				                                      slit ? GLOW_S * slg : 0.0);
 			}
 
 			if (i < mSubAmmos.Size() && mSubAmmos[i] != 0)
 			{
-				level.MoveBillboard(mSubAmmos[i], pos + lift - (0, 0, panelH * 0.41));
-				level.ResizeBillboard(mSubAmmos[i], panelW * mSubAmmoW[i],
-				                                    panelH * AMMO_H_FRAC);
+				level.MoveBillboard(mSubAmmos[i], pos + lift - (0, 0, panelH * 0.41 * spulse));
+				level.ResizeBillboard(mSubAmmos[i], panelW * mSubAmmoW[i] * spulse,
+				                                    panelH * AMMO_H_FRAC * spulse);
 				level.OrientBillboard(mSubAmmos[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+				level.RollBillboard(mSubAmmos[i], subRoll);
+			}
+
+			// The proportion, as a bar -- read before the number is.
+			if (i < mSubGauges.Size() && mSubGauges[i] != 0)
+			{
+				level.MoveBillboard(mSubGauges[i], pos + lift - (0, 0, panelH * 0.26 * spulse));
+				level.ResizeBillboard(mSubGauges[i], panelW * 0.76 * spulse,
+				                                     panelH * GAUGE_H_FRAC * spulse);
+				level.OrientBillboard(mSubGauges[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+				level.RollBillboard(mSubGauges[i], subRoll);
 			}
 
 			// The held mark, same corner as a ring card's.
@@ -1942,11 +2109,25 @@ class wr_Rig : EventHandler
 			{
 				level.MoveBillboard(mSubMarks[i],
 					pos + lift * 1.5
-					    + viewRight * (panelW * 0.40)
-					    + (0, 0, panelH * 0.34));
-				level.ResizeBillboard(mSubMarks[i], panelW * 0.10, panelH * 0.13);
+					    + viewRight * (panelW * 0.40 * spulse)
+					    + (0, 0, panelH * 0.34 * spulse));
+				level.ResizeBillboard(mSubMarks[i], panelW * 0.10 * spulse, panelH * 0.13 * spulse);
 				level.OrientBillboard(mSubMarks[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+				level.RollBillboard(mSubMarks[i], subRoll);
 			}
+
+			// FOCUS, LAST -- fading every element by the SAME subAlpha this
+			// card just computed, mirroring the order main's own loop fades
+			// in (after every element's move/resize, so nothing here can be
+			// touched by a call that has not run yet).
+			fade(mSubIds[i], subAlpha);
+			if (i < mSubShadows.Size()) fade(mSubShadows[i], subAlpha);
+			if (i < mSubIcons.Size())   fade(mSubIcons[i], subAlpha);
+			if (i < mSubAccents.Size()) fade(mSubAccents[i], subAlpha);
+			if (i < mSubLabels.Size())  fade(mSubLabels[i], subAlpha);
+			if (i < mSubAmmos.Size())   fade(mSubAmmos[i], subAlpha);
+			if (i < mSubGauges.Size())  fade(mSubGauges[i], subAlpha);
+			if (i < mSubMarks.Size())   fade(mSubMarks[i], subAlpha);
 		}
 	}
 
@@ -4034,6 +4215,15 @@ class wr_Rig : EventHandler
 	{
 		int card = cardIndexOf(mHovered);
 		if (card >= 0 && card < mCardColor.Size()) return mCardColor[card];
+
+		// A fan card is still a card the beam is on. Without this the laser,
+		// the dust in it, the sweep and the fog all snapped back to idle blue
+		// the instant the pointer crossed from the ring into a fan -- the one
+		// place the room's colour is doing the most work, because a fan is
+		// where several near-identical weapons are being told apart.
+		int sub = subIndexOf(mHovered);
+		if (sub >= 0 && sub < mSubColor.Size()) return mSubColor[sub];
+
 		return COLOR_BEAM_IDLE;
 	}
 
@@ -4311,15 +4501,18 @@ class wr_Rig : EventHandler
 	// the same hue as the card, the accent and the beam, so the burst confirms
 	// which one you hit. Rainbow is prettier and says nothing. Both are worth
 	// having and only one of them is information.
-	private color sparkColor(int card)
+	// Takes the hue, not an index into one particular array. It used to take a
+	// ring index, which a fan card cannot supply: a sub-index of 2 IS a valid
+	// ring index of 2, so passing one in would have silently burst in some
+	// unrelated ring card's colour rather than failing where it could be seen.
+	private color sparkColor(color hue)
 	{
 		int mode = int(cv("wr_spark_color", 0.0));
 
 		if (mode == 1) return 0xFFF0D8;
 		if (mode == 2) return 0;              // per-particle, see sparks()
 
-		if (card >= 0 && card < mCardColor.Size()) return mCardColor[card];
-		return COLOR_BEAM_IDLE;
+		return hue;
 	}
 
 	// Full-saturation hue by index, for the rainbow mode. Six linear ramps
@@ -4489,6 +4682,13 @@ class wr_Rig : EventHandler
 		return (mCardX[i], mCardY[i], mCardZ[i]);
 	}
 
+	// cardPos()'s sub-card counterpart.
+	private Vector3 subPos(int i) const
+	{
+		if (i < 0 || i >= mSubX.Size()) return (0, 0, 0);
+		return (mSubX[i], mSubY[i], mSubZ[i]);
+	}
+
 	// ONE LIGHT, ON THE CARD YOU ARE POINTING AT.
 	//
 	// Not one per card, and that is the optimisation that matters: dynamic
@@ -4505,8 +4705,31 @@ class wr_Rig : EventHandler
 	{
 		bool want = cv("wr_light", 1.0) > 0.0 && mHovered != 0;
 
+		// WHERE, AND WHAT COLOUR -- resolved up front from EITHER index space,
+		// because the light does not care which of the two a card came from.
+		// This used to ask the ring only and switch the room light off outright
+		// on a fan card, so unfolding a slot and moving one step darkened the
+		// room: the exact opposite of what a fan needs, since telling four
+		// near-identical weapons apart is what the light is for.
+		Vector3 here = (0, 0, 0);
+		color lightHue = COLOR_BEAM_IDLE;
+
 		int card = cardIndexOf(mHovered);
-		if (card < 0 || card >= mCardX.Size()) want = false;
+		if (card >= 0 && card < mCardX.Size() && card < mCardColor.Size())
+		{
+			here = cardPos(card);
+			lightHue = mCardColor[card];
+		}
+		else
+		{
+			int sub = subIndexOf(mHovered);
+			if (sub >= 0 && sub < mSubX.Size() && sub < mSubColor.Size())
+			{
+				here = subPos(sub);
+				lightHue = mSubColor[sub];
+			}
+			else want = false;
+		}
 
 		if (!want)
 		{
@@ -4516,14 +4739,13 @@ class wr_Rig : EventHandler
 
 		if (mLight == null)
 		{
-			// Through a local, not straight from cardPos(): SetOrigin and Spawn
+			// Through a local, not straight from the getter: SetOrigin and Spawn
 			// want a modifiable value, and a function's return is not one.
-			Vector3 lp = cardPos(card);
+			Vector3 lp = here;
 			mLight = Actor(Actor.Spawn("WR_CardLight", lp, NO_REPLACE));
 			if (mLight == null) return;
 		}
 
-		Vector3 here = cardPos(card);
 		mLight.SetOrigin(here, true);
 
 		double breathe = 1.0 + 0.12 * sin(mHoverTics * PULSE_SPEED);
@@ -4533,7 +4755,7 @@ class wr_Rig : EventHandler
 		// radius change at all -- A_AttachLight replaces a light with a matching
 		// id rather than stacking a second one on top.
 		mLight.A_AttachLight('wrcard', DynamicLight.PointLight,
-			mCardColor[card], r1, int(r1 * 0.35),
+			lightHue, r1, int(r1 * 0.35),
 			DynamicLight.LF_ATTENUATE);
 	}
 
@@ -4797,15 +5019,35 @@ class wr_Rig : EventHandler
 		// sparks -- because it is the one outcome you might genuinely not have
 		// meant.
 		int hitCard = cardIndexOf(mHovered);
-		if (hitCard >= 0 && hitCard < mCardX.Size())
+		if (hitCard >= 0 && hitCard < mCardX.Size() && hitCard < mCardColor.Size())
 		{
 			Vector3 burstAt = cardPos(hitCard);
-			sparks(burstAt, sparkColor(hitCard), dry ? 0.4 : 1.0);
+			sparks(burstAt, sparkColor(mCardColor[hitCard]), dry ? 0.4 : 1.0);
 
 			// And it flips as it folds away. Roll is a real axis now, and the
 			// group collapse keeps the billboards alive long enough to see it.
 			mFlipCard = hitCard;
 			mFlipTics = CLOSE_TICS;
+		}
+		else
+		{
+			// A FAN CARD BREAKS APART TOO. Taking one used to be the only quiet
+			// pick in the mod -- no burst, no flip -- which read as the take not
+			// having registered at the exact moment it had.
+			//
+			// Safe for the same reason the flip is: closeRig does NOT collapse
+			// the fan, it animates mFanGroup to zero over CLOSE_TICS and defers
+			// the actual destruction to destroyPanels, so these billboards
+			// outlive this call by exactly the window the spin needs.
+			int hitSub = subIndexOf(mHovered);
+			if (hitSub >= 0 && hitSub < mSubX.Size() && hitSub < mSubColor.Size())
+			{
+				Vector3 burstAt = subPos(hitSub);
+				sparks(burstAt, sparkColor(mSubColor[hitSub]), dry ? 0.4 : 1.0);
+
+				mSubFlipCard = hitSub;
+				mFlipTics    = CLOSE_TICS;
+			}
 		}
 
 		// The swap already did its own equipping, above, because it needed to
