@@ -7,9 +7,9 @@
 //
 // A FIXED POOL, declared up front, because that is the only way canvas
 // textures exist: there is no allocate-on-demand. Twelve is one per ring slot
-// with headroom; a thirteenth card falls back to the billboard-composed face
-// rather than failing, so a weapon set larger than the pool degrades instead
-// of breaking.
+// with headroom. A ring that needs MORE than twelve draws every card composed
+// instead -- all of it, not just the overflow, because a ring split between
+// two card styles reads worse than a ring uniformly in the plainer one.
 //
 // 140x100 matches the card's own 3.5 x 2.5 proportions, so artwork painted
 // here is not stretched when it lands on the quad. `fit` gives the texture a

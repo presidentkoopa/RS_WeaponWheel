@@ -521,27 +521,32 @@ class wr_Rig : EventHandler
 			for (int i = 0; i < mIcons.Size(); ++i)  { if (mIcons[i] != 0) ++icons; }
 
 			bool wantCanvas = cv("wr_canvas", 0.0) > 0.0;
+			// The ring is over the pool, so nothing was painted BY DESIGN --
+			// reported separately below, and kept out of the NONE PAINTED
+			// alarm, which means the canvas machinery is broken.
+			bool overPool  = wantCanvas && mIds.Size() > FACE_POOL;
 
 			Console.Printf(
 				"\c[Gold]WRISTRIG\c- %d cards | plate %s | faces %d/%d%s | icons %d | hand %s",
 				mIds.Size(),
 				(plateKind() == LevelLocals.BB_SDFPANEL) ? "sdf" : "sampled",
-				faces, wantCanvas ? min(mIds.Size(), FACE_POOL) : 0,
-				(wantCanvas && faces == 0) ? " \c[Red]NONE PAINTED\c-" : "",
+				faces, (wantCanvas && !overPool) ? mIds.Size() : 0,
+				(wantCanvas && !overPool && faces == 0) ? " \c[Red]NONE PAINTED\c-" : "",
 				icons,
 				(mRigHand == 1) ? "off" : "main");
 
 			// Named separately because it is the one with a known cause and a
 			// known fix, rather than a number to interpret.
-			if (wantCanvas && faces == 0)
+			if (wantCanvas && !overPool && faces == 0)
 			{
 				Console.Printf("\c[Gold]WRISTRIG\c- canvas returned nothing: "
 					"WRFACEnn undeclared, or animdefs.txt not loaded");
 			}
-			if (wantCanvas && mIds.Size() > FACE_POOL)
+			if (overPool)
 			{
-				Console.Printf("\c[Gold]WRISTRIG\c- %d cards past the pool of %d "
-					"fell back to composed faces", mIds.Size() - FACE_POOL, FACE_POOL);
+				Console.Printf("\c[Gold]WRISTRIG\c- %d cards over the pool of %d, "
+					"whole ring composed -- wr_subcards 1 keeps it under",
+					mIds.Size(), FACE_POOL);
 			}
 		}
 	}
@@ -1572,7 +1577,7 @@ class wr_Rig : EventHandler
 	//
 	// On a magazine weapon the loaded rounds live in Ammo2 and Ammo1 is the
 	// reserve, so reading Ammo1 as the headline number reported the pile you
-	// are NOT currently able to fire. Every card, every pip row and every dry
+	// are NOT currently able to fire. Every card, every ammo bar and every dry
 	// warning was answering the wrong question for those weapons -- including
 	// the dry test, which called a gun with an empty reserve and a full
 	// magazine "dry".
@@ -2002,7 +2007,7 @@ class wr_Rig : EventHandler
 			// Capped to the artwork band, not the whole canvas: the lower third is
 			// the readouts and a sprite that reaches it is a sprite behind a label.
 			// The sprite may use the whole artwork band. It was capped to the gap
-			// between the pips and the readout line, which is a smaller number and
+			// between the ammo bars and the readout line, which is a smaller number and
 			// left every gun drawn as a thin strip.
 			double hcap = ICON_BOX_H * 1.35;
 			if (ih > hcap) { ih = hcap; iw = ih * aspect; }
@@ -2063,7 +2068,7 @@ class wr_Rig : EventHandler
 		// this reads "how much is left", monotonically, whatever the count.
 		if (cv("wr_ammo", 1.0) > 0.0)
 		{
-			barRow(canvas, PIP_TOP, ammoLoadedFrac(held), faceColor);
+			barRow(canvas, BAR_TOP, ammoLoadedFrac(held), faceColor);
 
 			// The second row is the RESERVE on a magazine weapon and the alt
 			// fire pile on one with a real alt fire -- never both, since a
@@ -2072,11 +2077,11 @@ class wr_Rig : EventHandler
 			if (hasMagazine(held) && held.Ammo1 != null && held.Ammo1.MaxAmount > 0)
 			{
 				double rfrac = clamp(double(held.Ammo1.Amount) / held.Ammo1.MaxAmount, 0.0, 1.0);
-				barRow(canvas, PIP_TOP + BAR_H + 3, rfrac, COLOR_ALT_PIP);
+				barRow(canvas, BAR_TOP + BAR_H + 3, rfrac, COLOR_ALT_BAR);
 			}
 			else
 			{
-				barRow(canvas, PIP_TOP + BAR_H + 3, ammoFrac2(held), COLOR_ALT_PIP);
+				barRow(canvas, BAR_TOP + BAR_H + 3, ammoFrac2(held), COLOR_ALT_BAR);
 			}
 		}
 
@@ -2132,7 +2137,8 @@ class wr_Rig : EventHandler
 		}
 	}
 
-	// Magazine size, for deciding whether pips can be literal.
+	// Magazine size. Read by ammoLoadedFrac, which turns a round count into the
+	// fraction the bar fills.
 	private static int ammoCapRaw(Weapon w)
 	{
 		if (w == null || w.Ammo1 == null) return -1;
@@ -2149,38 +2155,6 @@ class wr_Rig : EventHandler
 		int b = int(( c        & 0xFF) * k);
 		return color(255, r, g, b);
 	}
-
-	//==========================================================================
-	// The stats panel, and the contract that fills it
-	//==========================================================================
-	//
-	// THE WHEEL NEVER MENTIONS ANY WEAPON MOD. It asks whoever is listening.
-	//
-	//   ServiceIterator.Find("RS_WheelStats")
-	//   svc.GetString("stats", "", 0, 0, <the weapon actor>)
-	//
-	// and renders whatever comes back. RS_Main answers with tier, condition,
-	// curses and sockets; DLRA or anything else answers with its own; nothing
-	// answers and the panel shows what the wheel itself knows. No patch pk3, no
-	// hard dependency, no version to keep in step -- a provider is one class
-	// and it can ship inside the mod that owns the data.
-	//
-	// THE FORMAT is deliberately boring: newline-separated rows, tab-separated
-	// fields, first field names the row type. A provider building this needs a
-	// string builder and nothing else, and a malformed row is skipped rather
-	// than fatal -- a stats panel must never be able to break a weapon menu.
-	//
-	//   title <name>
-	//   tier  <word>  <0xRRGGBB>
-	//   promo <count>
-	//   stat  <label>  <value>  <0xRRGGBB>  <fill 0-1>  <earned 0-1>  <flag>
-	//   cond  <now>  <max>  <backfire percent>
-	//   sock  <used>  <total>
-	//   affix <name>
-	//
-	// `flag` is "", "cursed" or "locked". `earned` is the portion of `fill`
-	// that was gained rather than rolled, drawn brighter -- the two-tone bar
-	// that tells you a weapon's history at a glance.
 
 	private void spawnPanels()
 	{
@@ -2200,6 +2174,24 @@ class wr_Rig : EventHandler
 
 		double panelW = cv("wr_panel_w", 4.2) * cv("wr_scale", 1.0);
 		double panelH = cv("wr_panel_h", 3.0) * cv("wr_scale", 1.0);
+
+		// PAINTED FACES ARE ALL OR NOTHING, decided here for the whole ring
+		// rather than per card in the loop.
+		//
+		// The pool is a fixed twelve -- canvas textures have to be declared up
+		// front in animdefs and there is no allocate-on-demand -- and this used
+		// to let card thirteen quietly fall back to a composed face on its own.
+		// That is fine as failure handling and wrong as a picture: painted and
+		// composed cards do not look like variants of one card, they look like
+		// two different menus, and the ring's whole job is to be read at a
+		// glance. It only ever happened with wr_subcards off, where the ring
+		// grows a card per weapon instead of per slot, so the sets that tripped
+		// it were the crowded ones that could least afford the noise.
+		//
+		// One uniform ring of composed cards beats twelve good ones and a
+		// remainder. Turning wr_subcards back on is also the way out, since a
+		// ring of slots cannot exceed nine.
+		bool canvasRing = cv("wr_canvas", 0.0) > 0.0 && mTypes.Size() <= FACE_POOL;
 
 		for (int i = 0; i < mTypes.Size(); ++i)
 		{
@@ -2316,13 +2308,12 @@ class wr_Rig : EventHandler
 			// billboards are not created at all -- they are already painted into
 			// it, and drawing both would stack two icons on one card.
 			//
-			// Falls back per card, not per ring: the thirteenth weapon in a set
-			// larger than the pool simply gets a composed face and everything
-			// keeps working.
+			// Per RING, not per card -- canvasRing is decided once above, and
+			// the note there says why a mixed ring was the worse answer.
 			int fid = 0;
 			bool canvasFace = false;
 
-			if (cv("wr_canvas", 0.0) > 0.0 && heldNow != null && i < FACE_POOL)
+			if (canvasRing && heldNow != null)
 			{
 				TextureID face = paintFace(i, heldNow, mCardColor[i], rest == COLOR_DRY);
 				if (face.IsValid())
@@ -2733,7 +2724,7 @@ class wr_Rig : EventHandler
 			// -- so it is atan2 of the card-to-eye vector, not of its negation.
 			//
 			// Getting that backwards did not merely turn the cards around. Every
-			// label, icon, pip and painted face is offset along `lift`, which is
+			// label, icon, bar and painted face is offset along `lift`, which is
 			// built from this yaw, so flipping it pushed all of them BEHIND the
 			// plate where the plate hid them. Seven cards rendered as seven
 			// blank rectangles and the debug line still read faces 7/7, because
@@ -4176,7 +4167,7 @@ class wr_Rig : EventHandler
 
 	// ONE line of the name, as a fraction of the card. 0.34 was set when a name
 	// was always one line and the card had nothing else on it; against a slot
-	// stripe, artwork, pips and a bezel it reads as shouting.
+	// stripe, artwork, ammo bars and a bezel it reads as shouting.
 	const LABEL_HEIGHT_FRAC = 0.22;
 
 	// And how much of the card's HEIGHT the whole name may occupy once wrapped.
@@ -4203,9 +4194,9 @@ class wr_Rig : EventHandler
 	const COLOR_AMMO     = 0x8C97A8;
 	const COLOR_AMMO_DRY = 0xC65C5C;
 
-	// The alt-fire reserve. Cool against the slot colour so a second pip row is
+	// The alt-fire reserve. Cool against the slot colour so the second bar is
 	// never mistaken for more of the first.
-	const COLOR_ALT_PIP  = 0x4FA3D1;
+	const COLOR_ALT_BAR  = 0x4FA3D1;
 
 	// The held-weapon mark. The OTHER hand gets the brighter one: that is the
 	// case where taking the card actually does something -- a swap, or a free
@@ -4236,7 +4227,7 @@ class wr_Rig : EventHandler
 	const FACE_BANDS  = 5;     // gradient steps
 	const FACE_ACCENT = 6;     // slot stripe height
 	const ICON_BOX_W  = 96.0;
-	// The artwork band. Sits under the pips and above the readout line, and it
+	// The artwork band. Sits under the bars and above the readout line, and it
 	// is the largest single thing on the card because the picture is what you
 	// recognise a weapon by -- the name is confirmation, not identification.
 	const ICON_BOX_H  = 40.0;
@@ -4248,9 +4239,9 @@ class wr_Rig : EventHandler
 	// artwork does not get the whole face -- it gets everything above them, and
 	// anything it puts in the bottom third lands underneath a label.
 	//
-	// Hence pips at the TOP, under the accent, rather than in the natural place
-	// at the bottom: the bottom is spoken for.
-	const PIP_TOP     = 11;
+	// Hence the ammo bars at the TOP, under the accent, rather than in the
+	// natural place at the bottom: the bottom is spoken for.
+	const BAR_TOP     = 11;
 	const BAR_INSET   = 10;
 	const BAR_H       = 8;
 

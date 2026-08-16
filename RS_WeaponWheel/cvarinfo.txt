@@ -181,10 +181,17 @@ user float wr_floor_seam   = 0.5;
 // will -- which is why the name and the count stay as field billboards on top
 // either way, and only the artwork underneath them changes.
 //
-// Twelve canvas textures are declared in animdefs.txt. A card past that falls
-// back to the composed face on its own, so a big weapon set degrades rather
-// than breaking. Painted once on open; nothing on a card changes while the
-// ring is up.
+// Twelve canvas textures are declared in animdefs.txt, and that is a hard
+// ceiling -- they have to be declared up front and there is no allocating one
+// on demand. A ring that does not fit uses composed faces for ALL of it, not
+// for the overflow: painted and composed cards do not read as variants of one
+// card, they read as two menus, and a ring is meant to be taken in at a
+// glance. Only reachable with wr_subcards off, since a ring of slots cannot
+// exceed nine.
+//
+// Repainted every tic, not once on open -- a canvas is a command queue the
+// engine empties after it plays, so anything permanently on screen has to be
+// re-queued or it lasts exactly one frame.
 user bool wr_canvas = false;
 
 // How far the weapon sprite runs off the card, as a multiple of card width.
