@@ -758,8 +758,8 @@ class wr_Rig : EventHandler
 			sheetRow(String.Format("SHOTS %d  (%d/ea)", shots, use), SHEET_MEAS);
 		}
 
-		if (isRS) rsRows(w);
-		else      setSheetBar(0, SHEET_MEAS, false);
+		if (isRS && cv("wr_sheet_stats", 1.0) > 0.0) rsRows(w);
+		else                                        setSheetBar(0, SHEET_MEAS, false);
 
 		blankRestOfSheet();
 	}
@@ -918,6 +918,15 @@ class wr_Rig : EventHandler
 		return w ? w.default.SlotNumber : 0;
 	}
 
+	// Guarded like every other cvar read here: GetCVar returns null for one
+	// the config has never seen and GetFloat on that aborts the VM, which
+	// kills layout every tic and reads exactly like the rig not existing.
+	private static double sheetScale()
+	{
+		double s = cv("wr_sheet_scale", 1.0);
+		return (s < 0.1) ? 1.0 : s;
+	}
+
 	// Empty every pool row this pass did not use. Blanked rather than removed
 	// so row N is always the same billboard at the same height -- a row that
 	// disappears and takes the rows below it up with it is the thing that
@@ -949,6 +958,7 @@ class wr_Rig : EventHandler
 	private void buildSheet()
 	{
 		clearSheet();
+		if (cv("wr_sheet", 1.0) <= 0.0) return;
 
 		// The plate, and a hit-free border. plateKind()/plateShape() are the
 		// same solved-rectangle payload the cards use, so the sheet is made of
@@ -1069,8 +1079,9 @@ class wr_Rig : EventHandler
 	{
 		if (mSheetPlate == 0) return;
 
-		double sw = panelW * SHEET_W_CARDS;
-		double sh = panelH * SHEET_H_CARDS;
+		double ss = sheetScale();
+		double sw = panelW * SHEET_W_CARDS * ss;
+		double sh = panelH * SHEET_H_CARDS * ss;
 
 		// DEAD CENTRE, where the centre cell used to be. Zero degrees off the
 		// view axis no matter how large the ring grows, and out of reach of
@@ -3150,8 +3161,13 @@ class wr_Rig : EventHandler
 		// This only ever pushes the ring OUT. wr_radius and the count-driven
 		// minR above both still win when they are larger, so nothing about a
 		// crowded ring changes.
-		double sheetR = panelW * (SHEET_W_CARDS * 0.5 + 0.5 + SHEET_GAP_CARDS);
-		if (sheetR > ringR) ringR = sheetR;
+		// Only while the sheet is actually there. Switched off, the ring goes
+		// back to being sized by wr_radius and the card count alone.
+		if (cv("wr_sheet", 1.0) > 0.0)
+		{
+			double sheetR = panelW * (SHEET_W_CARDS * sheetScale() * 0.5 + 0.5 + SHEET_GAP_CARDS);
+			if (sheetR > ringR) ringR = sheetR;
+		}
 
 		// Published for RingClearance() -- anything parking beside the
 		// ring needs the count-grown extent, not the tuned base value.

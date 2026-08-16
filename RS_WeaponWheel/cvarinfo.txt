@@ -335,3 +335,42 @@ user float wr_parallax = 0.06;
 // drifting one is a signal. 0 holds them.
 user float wr_scan_crawl = 1.0;
 
+
+// THE DATA SHEET
+//
+// The panel standing in the middle of the ring, describing whatever the
+// selector is pointing at -- and what your hand already holds when it is
+// pointing at nothing.
+//
+// It stands at the CENTRE and not beside the ring, and that is geometry
+// rather than taste: parked beside, it rides the ring's radius, which grows
+// with the card count. Nine cards put it 25 degrees off your view axis,
+// twenty-five put it at 40, fifty at 56 -- a head turn away from the card you
+// are choosing. At the centre it is at zero degrees whatever the ring does,
+// and fans expand outward so they can never collide with it.
+//
+// Off gives you the ring alone, and the ring shrinks back to whatever
+// wr_radius and the card count ask for -- the sheet holds a minimum radius
+// open while it is there, so the cards orbit clear of it rather than through
+// it.
+user bool  wr_sheet       = true;
+
+// Sheet size, as a multiplier on its own proportions. It is measured in CARD
+// widths, so it already tracks wr_panel_* and wr_scale; this is the dial for
+// "bigger than that" without touching the cards.
+//
+// Growing it pushes the ring out, because the ring's minimum radius is set
+// from the sheet's half-width. Past about 1.5 the ring is being sized by the
+// sheet rather than by your cards.
+user float wr_sheet_scale = 1.0;
+
+// The rolled stat rows -- tier, condition, DPS, accuracy, crit, velocity,
+// rate of fire, real magazine size. Read straight off the weapon, so they
+// appear for any mod that stores its numbers in fields and simply do not
+// appear for one that does not.
+//
+// Off leaves the sheet showing what the engine itself knows: name, slot,
+// ammo type and count, handling. That is the honest floor, and it works with
+// no weapon mod loaded at all.
+user bool  wr_sheet_stats = true;
+

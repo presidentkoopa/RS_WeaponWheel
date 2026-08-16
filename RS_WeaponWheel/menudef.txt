@@ -78,6 +78,20 @@ OptionMenu wr_Options
 	Slider "  Scanlines",               "wr_canvas_scan",   0.0, 0.8, 0.02, 2
 
 	StaticText ""
+	StaticText "Data sheet", gold
+	// The panel in the middle of the ring. Off returns the centre to empty
+	// space and lets the ring shrink back to its own radius -- the sheet holds
+	// a minimum open so cards orbit clear of it.
+	Option "Show data sheet",           "wr_sheet",        "OnOff"
+	// Measured in card widths, so it already follows wr_panel_* and wr_scale.
+	// Past about 1.5 the ring is being sized by the sheet, not by your cards.
+	Slider "  Sheet size",              "wr_sheet_scale",  0.5, 2.0, 0.05, 2
+	// Tier, condition, DPS, accuracy, crit, velocity, rate of fire and the
+	// real magazine size, read straight off the weapon. Off leaves the rows
+	// the engine itself can answer, which work with no weapon mod at all.
+	Option "  Rolled weapon stats",     "wr_sheet_stats",  "OnOff"
+
+	StaticText ""
 	StaticText "The room", gold
 	// All four borrow a single global engine slot each. A co-loaded mod using
 	// the same slot gets it back the moment the rig closes.
