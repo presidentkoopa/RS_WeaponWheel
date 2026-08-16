@@ -40,6 +40,7 @@ class wr_GunTag : EventHandler
 	private string mTagText[2];
 	private Class<Weapon> mTagFor[2];
 	private bool   mTagDry[2];
+	private int    mDebugTics[2];   // wr_debug heartbeat, one per hand
 
 	// Placement mode.
 	private bool    mPlacing;
@@ -90,8 +91,17 @@ class wr_GunTag : EventHandler
 	// playsim zeroes AttackRoll every tic because the usercmd has no weaponroll
 	// to rebuild it from on a peer, so it reads 0 forever while the model
 	// visibly rolls with your wrist. See the fork's FORK_CHANGES.md section 31.
-	static void handFrame(PlayerPawn pmo, int hand,
-	                      out Vector3 fwd, out Vector3 left, out Vector3 up)
+	//
+	// Returns fwd and left only, as six doubles rather than out Vector3
+	// params -- NOT a style choice. out Vector3 compiles and runs, but the
+	// JIT backend cannot generate a call to it (EmitPARAM has no case for a
+	// struct passed by reference) and silently falls back to the bytecode
+	// interpreter for every caller, three tic-rate functions among them.
+	// Every other multi-value return in this file is bare doubles for the
+	// same reason: proven to JIT clean, because it already does everywhere
+	// else. Callers rebuild the two Vector3s locally.
+	static double, double, double, double, double, double
+		handFrame(PlayerPawn pmo, int hand)
 	{
 		double y, p, r;
 
@@ -115,24 +125,26 @@ class wr_GunTag : EventHandler
 		double cp = cos(p), sp = sin(p);
 		double cyw = cos(y), syw = sin(y);
 
-		fwd  = (cp * cyw, cp * syw, sp);
-		Vector3 l0 = (-syw, cyw, 0);
-		// up = fwd x left, which for pitch 0 gives (0,0,1) as it should.
-		Vector3 u0 = (fwd.Y * l0.Z - fwd.Z * l0.Y,
-		              fwd.Z * l0.X - fwd.X * l0.Z,
-		              fwd.X * l0.Y - fwd.Y * l0.X);
+		Vector3 fwd = (cp * cyw, cp * syw, sp);
+		Vector3 l0  = (-syw, cyw, 0);
+		Vector3 left;
 
 		if (r != 0)
 		{
+			// up = fwd cross left holds for ANY roll: rotating left and up
+			// together about the fwd axis is exactly what a cross product
+			// commutes with, so deriving u0 once and rotating within the
+			// l0/u0 plane is exact, not an approximation.
+			Vector3 u0 = fwd cross l0;   // (0,0,1) at pitch 0, as it should be
 			double cr = cos(r), sr = sin(r);
 			left = l0 * cr + u0 * sr;
-			up   = u0 * cr - l0 * sr;
 		}
 		else
 		{
 			left = l0;
-			up   = u0;
 		}
+
+		return fwd.X, fwd.Y, fwd.Z, left.X, left.Y, left.Z;
 	}
 
 	static Vector3 handPos(PlayerPawn pmo, int hand)
@@ -290,6 +302,20 @@ class wr_GunTag : EventHandler
 		string txt; bool dry;
 		[txt, dry] = countFor(w);
 
+		bool dbg = cv("wr_debug", 0.0) > 0.0 && mDebugTics[hand]-- <= 0;
+		if (dbg)
+		{
+			mDebugTics[hand] = 35;
+			// A ternary needs both branches to already be the same type, and
+			// GetClassName() returns Name where the other branch is a String
+			// literal -- ".. ''" is the ZScript idiom that forces the coercion
+			// (Console.Printf's %s takes a Name directly with no fuss, this is
+			// purely the ternary's own type unification being stricter).
+			Console.Printf("\c[Cyan]RSVR HUD gun[%d]:\c- want=%d weapon=%s txt='%s' override=%d",
+				hand, int(want), (w == null) ? "null" : (w.GetClassName() .. ""), txt,
+				int(pmo.OverrideAttackPosDir));
+		}
+
 		if (!want || w == null || txt == "") { dropTag(hand); return; }
 
 		bool has; double oF, oL, oU, oYaw, oTilt, oRoll, pw, ph;
@@ -304,8 +330,9 @@ class wr_GunTag : EventHandler
 			pw = mEdW; ph = mEdH;
 		}
 
-		Vector3 fwd, left, up;
-		handFrame(pmo, hand, fwd, left, up);
+		double fx, fy, fz, lx, ly, lz;
+		[fx, fy, fz, lx, ly, lz] = handFrame(pmo, hand);
+		Vector3 fwd = (fx, fy, fz), left = (lx, ly, lz), up = fwd cross left;
 
 		Vector3 pos = handPos(pmo, hand) + fwd * oF + left * oL + up * oU;
 
@@ -357,6 +384,15 @@ class wr_GunTag : EventHandler
 			mTagId[hand] = level.AddBillboardPersistent(
 				pos, pw, ph, yaw, tilt, facing, payload, 0, hue,
 				LevelLocals.BBFL_PERSISTENT | LevelLocals.BBFL_NOHIT, 0, txt);
+
+			// Unconditional, not gated on the heartbeat -- this only fires on a
+			// weapon swap or a dry flip, so it is rare enough to print always,
+			// and is the one line that actually says whether the native call
+			// itself succeeded.
+			if (cv("wr_debug", 0.0) > 0.0) Console.Printf(
+				"\c[Cyan]RSVR HUD gun[%d]:\c- created id=%d pos=(%.1f,%.1f,%.1f) yaw=%.1f tilt=%.1f facing=%d size=%.1fx%.1f",
+				hand, mTagId[hand], pos.X, pos.Y, pos.Z, yaw, tilt, facing, pw, ph);
+
 			if (mTagId[hand] == 0) return;
 
 			mTagFor[hand]  = w.GetClass();
@@ -428,8 +464,9 @@ class wr_GunTag : EventHandler
 	{
 		if (!pmo.OverrideAttackPosDir) return false, 0, 0, 0;
 
-		Vector3 fwd, left, up;
-		handFrame(pmo, placeHand(), fwd, left, up);
+		double fx, fy, fz, lx, ly, lz;
+		[fx, fy, fz, lx, ly, lz] = handFrame(pmo, placeHand());
+		Vector3 fwd = (fx, fy, fz), left = (lx, ly, lz), up = fwd cross left;
 
 		Vector3 d = handPos(pmo, freeHand()) - handPos(pmo, placeHand());
 		return true, d dot fwd, d dot left, d dot up;
@@ -566,8 +603,9 @@ class wr_GunTag : EventHandler
 			mEdYaw, mEdTilt, mEdRoll, mEdW, mEdH,
 			mMeasured == "" ? "" : ("\nMEASURED  " .. mMeasured));
 
-		Vector3 fwd, left, up;
-		handFrame(pmo, freeHand(), fwd, left, up);
+		double fx, fy, fz, lx, ly, lz;
+		[fx, fy, fz, lx, ly, lz] = handFrame(pmo, freeHand());
+		Vector3 fwd = (fx, fy, fz), left = (lx, ly, lz), up = fwd cross left;
 		Vector3 sheetAt = at + fwd * 8.0 + up * 4.0;
 
 		if (mReadoutId == 0)
