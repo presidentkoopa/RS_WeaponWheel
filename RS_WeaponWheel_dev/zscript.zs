@@ -1,4 +1,4 @@
-version "4.10"
+﻿version "4.10"
 
 // Test loadout -- everything, immediately, so the rig can be looked at with a
 // full arc instead of a fist and a pistol.
@@ -141,7 +141,14 @@ class WR_DevKit : Object
 	// weapons spawns holding whichever one happened to land in Inv last.
 	// A real gun always beats a filler for a hand; a filler is only
 	// seated if it is genuinely all that hand has.
-	static play void SeatHands(PlayerPawn pmo)
+	// featured is the class's OWN weapon -- the one its name promises. Without
+	// it this seated whichever real weapon happened to be first in Inv, and
+	// since every Dual class is also granted rocket/plasma/BFG by
+	// GrantDualCommon, "DEV Dual Revolvers" spawned holding a BFG. Same
+	// tiebreaker RS_Main's own SeatHands applies via GetMainhandClass: the
+	// FLAG still decides which hand, this only decides which of your own guns
+	// is the featured one.
+	static play void SeatHands(PlayerPawn pmo, string featured = "")
 	{
 		if (!pmo || !pmo.player) return;
 
@@ -164,6 +171,18 @@ class WR_DevKit : Object
 				if (filler) { if (!mainFiller) mainFiller = w; }
 				else        { if (!mainGun)    mainGun    = w; }
 			}
+		}
+
+		// The class's own weapon wins the main hand over anything else it was
+		// also granted. Offhand takes the _4 identity of the same family, so
+		// both hands are the gun the class is named after.
+		if (featured.Length())
+		{
+			let fw = Weapon(pmo.FindInventory(featured));
+			if (fw && !fw.bOffhandWeapon) mainGun = fw;
+
+			let fo = Weapon(pmo.FindInventory(featured .. "4"));
+			if (fo && fo.bOffhandWeapon) offGun = fo;
 		}
 
 		Weapon mainWep = mainGun ? mainGun : mainFiller;
@@ -201,11 +220,17 @@ class WR_DevPlayerBase : DoomPlayer abstract
 	// Each leaf grants its own arsenal here.
 	virtual void GrantLoadout(PlayerPawn pmo) {}
 
+	// The weapon this class is NAMED after, so it is the one in your hands at
+	// spawn rather than whatever GiveInventory happened to add last. Empty
+	// means "no preference" -- correct for the whole-set classes, which are
+	// not named after any single gun.
+	virtual string FeaturedClass() { return ""; }
+
 	override void PostBeginPlay()
 	{
 		Super.PostBeginPlay();
 		GrantLoadout(self);
-		WR_DevKit.SeatHands(self);
+		WR_DevKit.SeatHands(self, FeaturedClass());
 	}
 }
 
@@ -230,11 +255,20 @@ class WR_DevDualBase : WR_DevPlayerBase abstract
 		// PARAMETER (GiveFamily's famBase, GiveAmmo's ammoClass) and so
 		// was never eagerly checked at all. GiveOne exists to put these
 		// two grants through that same parameter indirection.
+		// Slot 1: two fists and a chainsaw. Then ONE of each heavy.
+		//
+		// GiveOne, not GiveFamily, and that is the fix rather than a
+		// preference. The heavies were granted as full six-identity
+		// families like the class weapon, which put EIGHTEEN heavy guns on
+		// a class named after a revolver -- they swamped the ring and the
+		// hand seat picked a BFG out of them. The six identities belong to
+		// the family the class is named for, and to nothing else.
 		WR_DevKit.GiveOne(pmo, "VR_Fist");
 		WR_DevKit.GiveOne(pmo, "VR_Fist2");
-		WR_DevKit.GiveFamily(pmo, "VR_RocketLauncher");
-		WR_DevKit.GiveFamily(pmo, "VR_PlasmaRifle");
-		WR_DevKit.GiveFamily(pmo, "VR_BFG9000");
+		WR_DevKit.GiveOne(pmo, "VR_Chainsaw");
+		WR_DevKit.GiveOne(pmo, "VR_RocketLauncher");
+		WR_DevKit.GiveOne(pmo, "VR_PlasmaRifle");
+		WR_DevKit.GiveOne(pmo, "VR_BFG9000");
 
 		WR_DevKit.GiveAmmo(pmo, "Clip");
 		WR_DevKit.GiveAmmo(pmo, "VR_Shell");
@@ -252,6 +286,7 @@ class DEV_Dual_Pistol : WR_DevDualBase
 		WR_DevKit.GiveFamily(pmo, "VR_Pistol");
 		GrantDualCommon(pmo);
 	}
+	override string FeaturedClass() { return "VR_Pistol"; }
 }
 
 class DEV_Dual_Revolver : WR_DevDualBase
@@ -262,6 +297,7 @@ class DEV_Dual_Revolver : WR_DevDualBase
 		WR_DevKit.GiveFamily(pmo, "VR_Revolver");
 		GrantDualCommon(pmo);
 	}
+	override string FeaturedClass() { return "VR_Revolver"; }
 }
 
 class DEV_Dual_Rifle : WR_DevDualBase
@@ -272,6 +308,7 @@ class DEV_Dual_Rifle : WR_DevDualBase
 		WR_DevKit.GiveFamily(pmo, "VR_Rifle");
 		GrantDualCommon(pmo);
 	}
+	override string FeaturedClass() { return "VR_Rifle"; }
 }
 
 class DEV_Dual_SMG : WR_DevDualBase
@@ -282,6 +319,7 @@ class DEV_Dual_SMG : WR_DevDualBase
 		WR_DevKit.GiveFamily(pmo, "VR_SMG");
 		GrantDualCommon(pmo);
 	}
+	override string FeaturedClass() { return "VR_SMG"; }
 }
 
 class DEV_Dual_Shotgun : WR_DevDualBase
@@ -292,6 +330,7 @@ class DEV_Dual_Shotgun : WR_DevDualBase
 		WR_DevKit.GiveFamily(pmo, "VR_Shotgun");
 		GrantDualCommon(pmo);
 	}
+	override string FeaturedClass() { return "VR_Shotgun"; }
 }
 
 class DEV_Dual_SSG : WR_DevDualBase
@@ -302,6 +341,7 @@ class DEV_Dual_SSG : WR_DevDualBase
 		WR_DevKit.GiveFamily(pmo, "VR_SuperShotgun");
 		GrantDualCommon(pmo);
 	}
+	override string FeaturedClass() { return "VR_SuperShotgun"; }
 }
 
 class DEV_Dual_Chaingun : WR_DevDualBase
@@ -312,6 +352,7 @@ class DEV_Dual_Chaingun : WR_DevDualBase
 		WR_DevKit.GiveFamily(pmo, "VR_Chaingun");
 		GrantDualCommon(pmo);
 	}
+	override string FeaturedClass() { return "VR_Chaingun"; }
 }
 
 class DEV_VanillaPlus : WR_DevPlayerBase

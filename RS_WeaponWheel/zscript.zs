@@ -693,9 +693,37 @@ class wr_Rig : EventHandler
 			return;
 		}
 
-		int slot = w.default.SlotNumber;
-		if (slot >= 1 && slot <= 9)
-			sheetRow(String.Format("SLOT %d", slot), SHEET_DIM);
+		// RS DATA, READ STRAIGHT OFF THE WEAPON.
+		//
+		// Not through RS_Main's own RS_WeaponInfoService, and that is a
+		// deliberate refusal rather than an oversight. The builder that
+		// service serves (RS_Screens.zs:638-650) prints a cursed stat's real
+		// value with only a colour change or a "  [LOCKED]" suffix beside it
+		// -- the exact pattern its own sibling records as deleted at
+		// :276-281, "which gives the whole thing away". A consumer reading
+		// through it inherits the leak and cannot detect it, because the
+		// number arrives already formatted.
+		//
+		// Reflection reads the LockedX flags themselves, so the mask is
+		// decided here from the fact rather than inferred from a colour. It
+		// is also exact where the service is fragile: the DPS row it serves
+		// carries no lock tell at all (:641), so no consumer could mask it
+		// even if it tried.
+		int tier;
+		bool isRS = level.GetFieldInt(w, "Tier", tier);
+
+		// HANDLING RIDES THE TOP ROW rather than taking one of its own. Nine
+		// row slots is the hard ceiling before content draws off the plate,
+		// and a two-handed magazine weapon needs every one of them -- so the
+		// one- or two-word handling note goes where there is already space.
+		string hands = handlingOf(w);
+
+		if (isRS)
+			sheetRow(hands.Length() ? (tierWord(tier) .. "  " .. hands) : tierWord(tier),
+			         tierColorOf(w, tier));
+		else if (slotOf(w) >= 1 && slotOf(w) <= 9)
+			sheetRow(hands.Length() ? String.Format("SLOT %d  %s", slotOf(w), hands)
+			                        : String.Format("SLOT %d", slotOf(w)), SHEET_DIM);
 
 		// AMMO. The label is the ammo TYPE, because "this eats the same cells
 		// as what I am holding" is a real reason to pick one gun over another
@@ -734,15 +762,164 @@ class wr_Rig : EventHandler
 			sheetRow(String.Format("SHOTS %d  (%d/ea)", shots, use), SHEET_MEAS);
 		}
 
-		// HANDLING. Only the flags that change what your hands do, which is
-		// the part of a pick you feel rather than read.
-		string hands = "";
-		if (w.bMeleeWeapon)          hands = "MELEE";
-		else if (w.bTwoHanded)       hands = "TWO-HANDED";
-		if (w.bOffhandWeapon)        hands = hands.Length() ? (hands .. " / OFF") : "OFF HAND";
-		if (hands.Length())          sheetRow(hands, SHEET_ACCENT);
+		if (isRS) rsRows(w);
+		else      setSheetBar(0, SHEET_MEAS, false);
 
 		blankRestOfSheet();
+	}
+
+	// Only the flags that change what your HANDS do -- the part of a pick you
+	// feel rather than read. Everything else on Weapon is authoring data.
+	private static string handlingOf(Weapon w)
+	{
+		if (!w) return "";
+		string h = "";
+		if (w.bMeleeWeapon)    h = "MELEE";
+		else if (w.bTwoHanded) h = "2H";
+		if (w.bOffhandWeapon)  h = h.Length() ? (h .. "/OFF") : "OFF";
+		return h;
+	}
+
+	//==========================================================================
+	// THE RS ROWS, AND THE ONE RULE THEY EXIST TO OBEY.
+	//
+	// A CURSED STAT SHOWS ??? AND NO NUMBER. Owner ruling 2026-08-07, quoted
+	// at RS_Screens.zs:272-281: "curses obscure the actual value of a rolled
+	// stat until they are lifted by spending gold". The rows there used to
+	// print the halved value with a [LOCKED] tag, "which gives the whole thing
+	// away -- you could see exactly what you were buying and simply never buy
+	// a bad one".
+	//
+	// AND NO BAR. :292-297 is explicit: a cursed stat passes -1 for its bar
+	// fraction "because a bar IS the number and drawing one would leak exactly
+	// what the curse hides". Nothing below draws a gauge for a masked row.
+	//
+	// AND DERIVED VALUES MASK WITH THEIR SOURCE. :287-288: "DPS is derived
+	// from damage, so it must hide too -- otherwise it leaks the exact number
+	// the curse is concealing." DPS is DamagePerShot x PelletCount x
+	// RateOfFire and the other two are never cursed, so an unmasked DPS is the
+	// cursed damage after two divisions.
+	//==========================================================================
+	private void rsRows(Weapon w)
+	{
+		// FAIL CLOSED. Every test here is positive -- a read that fails leaves
+		// its flag false, which would mean "not cursed" and print the number.
+		// So an unreadable flag is treated as CURSED: showing ??? when nothing
+		// is hidden is a cosmetic error, and showing a number that should be
+		// hidden is the one that cannot be taken back.
+		int li;
+		bool lockDmg = !level.GetFieldBool(w, "LockedDamage",     li) || li != 0;
+		bool lockAcc = !level.GetFieldBool(w, "LockedAccuracy",   li) || li != 0;
+		bool lockCrt = !level.GetFieldBool(w, "LockedCritChance", li) || li != 0;
+		bool lockCap = !level.GetFieldBool(w, "LockedCapacity",   li) || li != 0;
+
+		// CONDITION -- the row that answers "will it fail me", and the only
+		// stat here that is never cursed, so it is also the only one that may
+		// carry a gauge.
+		double cnd;
+		if (level.GetFieldFloat(w, "Condition", cnd))
+		{
+			int pct = int(cnd);
+			// BACKFIRE BELOW 20, and nothing else on the sheet says so.
+			// RS_Roll.zs:216-232 is unambiguous: the 20-29 band is pure upside
+			// with backfireChance 0, and the band below it is 0.20 rising to
+			// 0.35. That edge is the single most decision-relevant number on a
+			// worn weapon and it has no colour of its own, so it gets a word.
+			color ccol = (pct < 20) ? color(SHEET_LOCK)
+			           : (pct < 50) ? color(SHEET_HOT) : color(SHEET_MEAS);
+
+			if (pct < 20)
+				sheetRow(String.Format("COND %d%%  BACKFIRE", pct), ccol);
+			else
+				sheetRow(String.Format("CONDITION %d%%", pct), ccol);
+
+			setSheetBar(pct, ccol, true);
+		}
+		else setSheetBar(0, SHEET_MEAS, false);
+
+		// DPS -- computed exactly as RS_Main computes it (RS_Screens.zs:271),
+		// so the two surfaces can never disagree about the same weapon.
+		int dmg, pel, rof;
+		bool haveD = level.GetFieldInt(w, "DamagePerShot", dmg);
+		bool haveP = level.GetFieldInt(w, "PelletCount",   pel);
+		bool haveR = level.GetFieldInt(w, "RateOfFire",    rof);
+
+		if (lockDmg)
+			sheetRow("DPS  ???", SHEET_LOCK);
+		else if (haveD && haveP && haveR)
+			sheetRow(String.Format("DPS %d", dmg * max(1, pel) * max(1, rof)), SHEET_HOT);
+
+		double acc;
+		if (lockAcc)                                     sheetRow("ACCURACY  ???", SHEET_LOCK);
+		else if (level.GetFieldFloat(w, "Accuracy", acc)) sheetRow(String.Format("ACCURACY %d", int(acc)), SHEET_MEAS);
+
+		double crit;
+		if (lockCrt)                                        sheetRow("CRIT  ???", SHEET_LOCK);
+		else if (level.GetFieldFloat(w, "CritChance", crit)) sheetRow(String.Format("CRIT %.1f%%", crit * 100.0), SHEET_MEAS);
+
+		// MAGAZINE. The loaded count is honest either way -- only CAPACITY is
+		// cursed (RS_Screens.zs:320) -- so this is the one row that prints a
+		// real number beside a mask rather than replacing the whole value.
+		//
+		// This is also the RIGHT denominator, which the engine-only path
+		// cannot get: Capacity is the rolled magazine size, where
+		// Ammo2.MaxAmount is the ammo class's default with deliberate
+		// headroom over it.
+		int cap;
+		if (hasMagazine(w))
+		{
+			if (lockCap)
+				sheetRow(String.Format("MAG %d / ???", ammoLoaded(w)), SHEET_LOCK);
+			else if (level.GetFieldInt(w, "Capacity", cap) && cap > 0)
+				sheetRow(String.Format("MAG %d / %d", ammoLoaded(w), cap), SHEET_TEXT);
+		}
+
+		bool lockVel = !level.GetFieldBool(w, "LockedVelocity", li) || li != 0;
+		double vel;
+		if (lockVel)                                       sheetRow("VELOCITY  ???", SHEET_LOCK);
+		else if (level.GetFieldFloat(w, "Velocity", vel))  sheetRow(String.Format("VELOCITY %d", int(vel)), SHEET_MEAS);
+
+		// RATE and PELLETS share a row. Both are stated as never cursed --
+		// RS_Screens.zs:299 says so of rate of fire outright, and pellets is
+		// promotion's reward rather than a rolled stat (:325-326) -- so
+		// neither can ever need a mask of its own, which is the only thing
+		// that would force them apart onto separate coloured rows.
+		if (haveR && rof > 0)
+		{
+			if (haveP && pel > 1) sheetRow(String.Format("ROF %d/s   PELLETS %d", rof, pel), SHEET_TEXT);
+			else                  sheetRow(String.Format("ROF %d/s", rof), SHEET_TEXT);
+		}
+	}
+
+	// The tier ladder, in RS_Roll.zs's own declaration order (:12-22). Read as
+	// an int because that is what the enum is; a name would need the type.
+	private static string tierWord(int t)
+	{
+		switch (t)
+		{
+			case 0: return "CURSED";
+			case 1: return "TRASH";
+			case 2: return "BASIC";
+			case 3: return "COMMON";
+			case 4: return "UNCOMMON";
+			case 5: return "ADVANCED";
+			case 6: return "DESIGNER";
+			case 7: return "PROTOTYPE";
+		}
+		return "UNRANKED";
+	}
+
+	// The tier's own colour, from RS_Main's single palette, so the sheet never
+	// starts a second table that can drift from it. cardColorFor already asks
+	// exactly this and falls through cleanly when RS_Main is absent.
+	private static color tierColorOf(Weapon w, int t)
+	{
+		return cardColorFor(w, slotOf(w));
+	}
+
+	private static int slotOf(Weapon w)
+	{
+		return w ? w.default.SlotNumber : 0;
 	}
 
 	// Empty every pool row this pass did not use. Blanked rather than removed
@@ -813,11 +990,35 @@ class wr_Rig : EventHandler
 				SHEET_TEXT, LevelLocals.BBFL_NOHIT, 0, ""));
 		}
 
+		// ONE BAR, and it belongs to CONDITION.
+		//
+		// Not to a stat that can be cursed. RS_Screens.zs:292-297 rules that a
+		// cursed stat draws no bar at all, "because a bar IS the number and
+		// drawing one would leak exactly what the curse hides" -- so a bar on
+		// a maskable row would need a suppression path, and UpdateBillboard
+		// cannot delete. Condition is never cursed, so this one is
+		// unconditionally safe to update in place every tic.
+		mSheetBars.Push(level.AddBillboardPersistent(
+			(0, 0, 0), 3.5, 0.35, 0, 0,
+			LevelLocals.BBF_FIXED, LevelLocals.BB_BAR, 0,
+			SHEET_MEAS, LevelLocals.BBFL_NOHIT, 0, ""));
+
 		// The title and the rows are filled by buildSheetRows() against the
 		// weapon actually under the selector. Nothing is authored here.
 		mSheetShown = null;
 		mSheetValid = false;
 		mSheetUsed  = 0;
+	}
+
+	// The condition gauge. Hidden rather than removed when a weapon has no
+	// condition to show -- the bar is one billboard for the life of the ring
+	// and alpha is the only way to take it off screen without freeing it.
+	private void setSheetBar(int pct, color col, bool show)
+	{
+		if (mSheetBars.Size() == 0 || mSheetBars[0] == 0) return;
+
+		level.SetBillboardAlpha(mSheetBars[0], show ? 1.0 : 0.0);
+		if (show) level.UpdateBillboard(mSheetBars[0], clamp(pct, 0, 100), col);
 	}
 
 	// Writes into the next pool slot rather than creating a billboard. The
@@ -4714,6 +4915,10 @@ class wr_Rig : EventHandler
 	const SHEET_HOT    = 0xEF9F27;
 	const SHEET_COOL   = 0x4FA3D1;
 	const SHEET_MEAS   = 0x5DCAA5;
+	// A masked row. One colour for every kind of hidden, because a curse is a
+	// STATE rather than a category -- RS_Screens.zs:624-626 makes the same
+	// point about locked rows outranking their stat family's own hue.
+	const SHEET_LOCK   = 0xBE3E4E;
 
 	// Where a fan's innermost ring sits, in cells out from its parent card.
 	//
