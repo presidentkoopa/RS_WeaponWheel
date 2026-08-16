@@ -42,6 +42,106 @@ class wr_Keybind
 	}
 }
 
+// =====================================================================
+// wr_RigService -- the SAME public door as wr_Rig's own block below,
+// reachable by a caller that does not know wr_Rig exists.
+//
+// wr_Rig itself cannot BE this: it is already an EventHandler, and
+// ZScript has no multiple inheritance. Without this adapter, another
+// mod's only way to reach the rig would be `wr_Rig(EventHandler.Find(
+// "wr_Rig"))` -- a CAST, which needs the wr_Rig CLASS NAME at compile
+// time, not just at runtime. That line compiles fine here, where this
+// file defines wr_Rig, and fails EVERYWHERE ELSE the moment
+// RS_WeaponWheel.pk3 is not loaded -- which is exactly the situation
+// this mod being split into its own repo was supposed to make normal.
+// A soft runtime dependency would have quietly become a hard
+// compile-time one.
+//
+// Service is the engine's own answer (wadsrc/static/zscript/engine/
+// service.zs): declaring a subclass is enough -- InitServices() walks
+// every loaded class once and auto-instantiates every Service
+// descendant, keyed by class name, so a caller reaches this through
+// ServiceIterator.Find("wr_RigService").Next() and never writes the
+// word wr_Rig at all. That file compiles whether or not this pk3 is
+// present. (Not Service.Find -- that overload takes class<Service>, an
+// actual type, so a string literal there still needs the class to
+// exist at compile time.)
+//
+// Requests answered:
+//   GetInt("IsOpen")            -- 1 if the wheel is open, 0 otherwise
+//   GetInt("OpenHand")          -- 0 main / 1 off; meaningless if closed
+//   GetDouble("RingClearance")  -- map units; live wr_radius/wr_scale,
+//                                  not a guess
+//   GetObject("HoveredWeapon", objectArg: PlayerPawn) -- the Weapon the
+//                                  wheel is pointed at for that pawn, or
+//                                  null
+// =====================================================================
+class wr_RigService : Service
+{
+	private wr_Rig Rig() const
+	{
+		return wr_Rig(EventHandler.Find("wr_Rig"));
+	}
+
+	// Neither the scope keyword nor the parameter defaults are restated
+	// on an override -- both are inherited from Service's own virtual
+	// declaration, and repeating either is a compile error, not a
+	// harmless echo of it.
+	override int GetInt(String request, string stringArg, int intArg, double doubleArg, Object objectArg, Name nameArg)
+	{
+		let rig = Rig();
+		if (!rig) return 0;
+		if (request == "IsOpen")   return rig.IsOpen() ? 1 : 0;
+		if (request == "OpenHand") return rig.OpenHand();
+		// Separate from IsOpen on purpose: the wheel can report open
+		// before it has resolved WHERE it is. mAnchor is set once, lazily,
+		// the first WorldTick after opening (wr_Rig: "if (!mHaveAnchor)
+		// {...}") -- so a caller building on the SAME tic the wheel just
+		// opened can read a real IsOpen=1 alongside a still-placeholder
+		// (0,0,0) anchor, if the caller's own WorldTick happens to run
+		// before the wheel's in that tic's handler order. A card built on
+		// that placeholder bakes itself at the wrong point forever, since
+		// nothing else triggers a rebuild afterward -- confirmed as the
+		// actual cause of "the card never shows up at all".
+		if (request == "HasAnchor") return rig.HasAnchor() ? 1 : 0;
+		return 0;
+	}
+
+	override double GetDouble(String request, string stringArg, int intArg, double doubleArg, Object objectArg, Name nameArg)
+	{
+		let rig = Rig();
+		if (!rig) return 0.0;
+		if (request == "RingClearance") return rig.RingClearance();
+
+		// The anchor's three components, not a Vector3 -- Service's typed
+		// getters do not have one. AnchorX/Y/Z answer 0 together when the
+		// wheel is closed (wr_Rig.Anchor() already folds that in), so a
+		// caller checking IsOpen first never has to special-case "the
+		// anchor is not real yet" a second time here.
+		//
+		// Stored in a local first -- ZScript will not dereference a field
+		// straight off a function call's return value ("Unable to
+		// dereference left side of X"), only off an actual variable.
+		if (request == "AnchorX" || request == "AnchorY" || request == "AnchorZ")
+		{
+			Vector3 a = rig.Anchor();
+			if (request == "AnchorX") return a.X;
+			if (request == "AnchorY") return a.Y;
+			return a.Z;
+		}
+		if (request == "AnchorYaw") return rig.AnchorYaw();
+		return 0.0;
+	}
+
+	override Object GetObject(String request, string stringArg, int intArg, double doubleArg, Object objectArg, Name nameArg)
+	{
+		let rig = Rig();
+		if (!rig) return null;
+		if (request == "HoveredWeapon") return rig.HoveredWeapon(PlayerPawn(objectArg));
+		return null;
+	}
+}
+
 class wr_Rig : EventHandler
 {
 	// Geometry, all in map units.
@@ -65,6 +165,7 @@ class wr_Rig : EventHandler
 	Array<int>   mAmmos;          // the count under the name
 	Array<Class<Weapon> > mTypes;
 	Array<int>   mCardSlots;      // which slot each card stands for
+	Array<int>   mCardColor;      // resolved once at build -- see cardColorFor()
 
 	// The card's colour when nothing is happening to it. Not a constant, because
 	// a dry weapon rests a different colour from a loaded one -- and hovering off
@@ -166,6 +267,14 @@ class wr_Rig : EventHandler
 	Vector3 mAnchor;              // the ring centre, out in front of the hand
 	double  mAnchorYaw;
 	bool    mHaveAnchor;
+	// The ring's ACTUAL current radius, written once per layout() pass --
+	// see the note there ("Ring radius grows with the count so the cards
+	// never crowd"). RingClearance() reads this instead of wr_radius
+	// alone, so a caller parking something beside the ring gets the
+	// count-grown extent, not just the tuned base value. 0 until the
+	// first layout() runs, which RingClearance() treats as "use the base
+	// radius" rather than as a real, collapsed ring.
+	double  mLastRingR;
 	// mAimYaw/mAimPitch/mHaveAim went with the angular gain that used them.
 	int mHovered;                 // billboard id under the poking hand, 0 = none
 	int mHoverTics;
@@ -176,6 +285,90 @@ class wr_Rig : EventHandler
 	bool    mTouching;            // hand is physically inside a card
 	bool    mBtOn;                // we are the ones holding bullet time on
 	int     mBtSavedUnlimited;    // their bt_adrenaline_unlimited, to put back
+
+	//==========================================================================
+	// THE ONLY THING ANOTHER MOD IS INVITED TO ASK.
+	//
+	// A weapon stat card -- or anything else that wants "what is the
+	// player looking at right now" -- reaches the rig through
+	// EventHandler.Find("wr_Rig"), the same way every RS_Main handler
+	// finds every other one, and gets exactly three answers: is it open,
+	// which hand, and what would commit() equip if pressed right now.
+	// Every field above this line stays exactly as unowned as it was --
+	// this is the one door, not a hole in the wall.
+	//==========================================================================
+	bool IsOpen() const   { return mOpen; }
+	int  OpenHand() const { return mRigHand; }   // 0 = main, 1 = off -- same as mHand elsewhere in RS
+
+	// Where the ring itself actually is. Resolved ONCE at open and held
+	// fixed for as long as the wheel stays open -- see the gate at
+	// "if (!mHaveAnchor)" below -- so a caller reading this every tic is
+	// not fighting a moving target, only a closed-wheel one (mHaveAnchor
+	// false, both calls return the zero vector / zero yaw).
+	Vector3 Anchor() const     { return mHaveAnchor ? mAnchor : (0, 0, 0); }
+	// Whether Anchor()/AnchorYaw() are answering real data or the
+	// placeholder. Open and anchored are NOT the same tic: mHaveAnchor is
+	// set lazily on the first WorldTick after the wheel opens, so IsOpen
+	// can read true for one tic before this does.
+	bool    HasAnchor() const { return mHaveAnchor; }
+	double  AnchorYaw() const  { return mHaveAnchor ? mAnchorYaw : 0.0; }
+
+	// The class a press would equip right now -- pulled out of commit()
+	// rather than duplicated next to it, so this can never answer a
+	// question commit() itself would answer differently. A card from an
+	// open fan names one specific weapon; the slot's own card names its
+	// first, checked second because a fan's parent card stays hittable
+	// while the fan is open and the fan is the more specific answer.
+	Class<Weapon> HoveredClass() const
+	{
+		if (!mOpen || mHovered == 0) return null;
+
+		int sub = subIndexOf(mHovered);
+		if (sub >= 0 && sub < mSubTypes.Size())
+			return mSubTypes[sub];
+
+		int index = cardIndexOf(mHovered);
+		if (index < 0 || index >= mTypes.Size()) return null;
+		return mTypes[index];
+	}
+
+	// The actual instance, resolved against the asking player's own
+	// inventory -- the ring only ever shows what pmo already carries, so
+	// null here means the wheel is closed or nothing is hovered, not
+	// "hovering something they don't own".
+	Weapon HoveredWeapon(PlayerPawn pmo) const
+	{
+		let want = HoveredClass();
+		if (!want || !pmo) return null;
+		return Weapon(pmo.FindInventory(want));
+	}
+
+	// How far the ring's own geometry actually reaches from the hand,
+	// right now -- not the RING_RADIUS constant above, which nothing at
+	// runtime reads any more. A caller parking something beside the ring
+	// (a stat card, say) needs the LIVE number: wr_radius and wr_scale
+	// are both player-tunable, so a fixed guess is correct for exactly
+	// one setting and wrong for every other.
+	//
+	// Includes half a panel's own width, because the ring's edge is
+	// where the PANELS end, not where their centres orbit.
+	// "Ensure the data card can dynamically shift further away in the
+	// event the wheel populates with more cards." mLastRingR IS that --
+	// layout()'s own live radius, grown past the tuned base whenever the
+	// count needs it (see the note there: "eight fit at the tuned
+	// distance, twelve push out to keep the same gap between them"). The
+	// static wr_radius*wr_scale is only the FLOOR that formula starts
+	// from, so reading it alone under-clears a ring that has grown.
+	// Falls back to that floor before the first layout() has ever run
+	// (mLastRingR still 0), which is the correct answer for an
+	// as-yet-unbuilt ring anyway.
+	double RingClearance() const
+	{
+		double baseRadius = cv("wr_radius", 5.0) * cv("wr_scale", 1.0);
+		double radius = (mLastRingR > 0.0) ? mLastRingR : baseRadius;
+		double panelHalfW = cv("wr_panel_w", 4.2) * cv("wr_scale", 1.0) * 0.5;
+		return radius + panelHalfW;
+	}
 
 	//==========================================================================
 	// Open / close
@@ -495,6 +688,7 @@ class wr_Rig : EventHandler
 		mAmmoW.Clear();
 		mTypes.Clear();
 		mCardSlots.Clear();
+		mCardColor.Clear();
 		mTouching  = false;
 		mOpen      = false;
 		mOpenTics  = 0;
@@ -565,12 +759,18 @@ class wr_Rig : EventHandler
 
 	// Geometry generation. Bump this whenever the numbers below change and every
 	// existing config picks them up once, automatically.
-	const CFG_VERSION = 18;
+	const CFG_VERSION = 19;
 
 	private void migrateConfig()
 	{
 		let stamp = CVar.GetCVar("wr_cfgver", players[consoleplayer]);
 		if (stamp == null || stamp.GetInt() >= CFG_VERSION) return;
+
+		// Gen 19 briefly migrated wr_card_* (the in-world stat card's own
+		// size/gap cvars) -- the card and everything that read them are
+		// gone now, owner's direct order after it could not be made to
+		// render its grid correctly. Left as an empty generation rather
+		// than renumbering everything after it.
 
 		// Gen 18: bigger cards. Text readability in a headset is an ABSOLUTE
 		// size problem -- a two-line name on a small card is small however the
@@ -641,6 +841,7 @@ class wr_Rig : EventHandler
 	{
 		mTypes.Clear();
 		mCardSlots.Clear();
+		mCardColor.Clear();
 
 		let slots = players[consoleplayer].weapons;
 		if (slots == null) return;
@@ -667,6 +868,14 @@ class wr_Rig : EventHandler
 
 				mTypes.Push(type);
 				mCardSlots.Push(slot);
+
+				// RESOLVED ONCE, HERE, NOT PER FRAME. paintFace repaints
+				// every tic in canvas mode -- see the note above
+				// repaintFaces -- and cardColorFor's tier branch is a
+				// cross-mod Service round trip, which belongs at build
+				// time once per weapon, not multiplied by every card
+				// every tic.
+				mCardColor.Push(cardColorFor(held, slot));
 
 				// FANS, OR EVERYTHING ON THE RING.
 				//
@@ -755,8 +964,14 @@ class wr_Rig : EventHandler
 			// extra information matters most: its entries are the SAME GUN in
 			// different states, so which one is dry and which one your other
 			// hand is holding is the entire question being asked.
+			// A CLONE CAN OUTRANK ITS SIBLING. Two _2-family instances of
+			// the same class can hold different RS tiers -- that is the
+			// entire point of owning more than one -- so this resolves
+			// PER INSTANCE rather than reusing the parent card's colour.
+			// Dry still overrides tier: which one is empty is the more
+			// urgent fact when the question is which to grab.
 			bool sdry = (cv("wr_ammo", 1.0) > 0.0 && ammoLoaded(held) == 0);
-			int srest = sdry ? COLOR_DRY : COLOR_SUB;
+			int srest = sdry ? COLOR_DRY : int(cardColorFor(held, mCardSlots[cardIndex]));
 
 			int sid = level.AddBillboardPersistent(
 				(0, 0, 0), 3.5, 2.5, 0, 0,
@@ -772,7 +987,7 @@ class wr_Rig : EventHandler
 			int sacc = level.AddBillboardPersistent(
 				(0, 0, 0), 3.5, 0.3, 0, 0,
 				LevelLocals.BBF_FIXED, LevelLocals.BB_PANEL, 0,
-				slotColor(mCardSlots[cardIndex]), LevelLocals.BBFL_NOHIT, 0, "");
+				mCardColor[cardIndex], LevelLocals.BBFL_NOHIT, 0, "");
 			level.SetBillboardGroup(sacc, mFanGroup);
 			mSubAccents.Push(sacc);
 
@@ -1438,6 +1653,73 @@ class wr_Rig : EventHandler
 		return 0x8A8F98;              // slot 0 and anything a mod invented
 	}
 
+	// -----------------------------------------------------------------
+	// THE REAL COLOUR FOR A CARD, tier first. Owner's ask: "can all the
+	// cards for all the sets be colored, even if they're colored by
+	// their rarity tier? otherwise if they don't have one can't the
+	// slots themselves get fun colors?" -- both halves of that, in order.
+	//
+	// 1. TIER, if the weapon has one. Asked of RS_Main's own tier table
+	//    through RS_TierColorService rather than by naming RS_Weapon or
+	//    RS_TierPalette directly -- the same bridge wr_RigService opened
+	//    going the other way, and for the identical reason: a direct
+	//    class reference needs that class to exist AT COMPILE TIME, and
+	//    this mod is meant to stand alone without RS_Main installed.
+	//    Service.Find returns null and this falls through cleanly if
+	//    RS_Main is not loaded, or is an older build without the Service.
+	//
+	// 2. THE CLASSIC SLOT PALETTE, for the nine weapons that actually
+	//    have one -- unchanged, this is why Rig Test was already
+	//    colourful.
+	//
+	// 3. A FUN COLOUR, HASHED FROM THE CLASS NAME, for everything left --
+	//    a modded weapon with no RS tier and no classic slot, which
+	//    previously fell through to the same flat grey as every other
+	//    such weapon. Hashed rather than random so the SAME weapon is
+	//    always the SAME colour, tic to tic and session to session, the
+	//    same promise slotColor already makes for the nine stock guns.
+	// -----------------------------------------------------------------
+	private static color cardColorFor(Weapon held, int slot)
+	{
+		if (held)
+		{
+			// ServiceIterator.Find, NOT Service.Find -- Service's own Find
+			// takes class<Service>, an actual TYPE, so a string literal
+			// there still makes the compiler resolve RS_TierColorService
+			// at compile time and fail to build without RS_Main loaded.
+			// ServiceIterator.Find(String) is the real runtime lookup.
+			let svc = ServiceIterator.Find("RS_TierColorService").Next();
+			if (svc)
+			{
+				int packed = svc.GetInt("TierColorOf", "", 0, 0, held);
+				if (packed >= 0)
+					return color(255, (packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF);
+			}
+		}
+
+		if (slot >= 1 && slot <= 9) return slotColor(slot);
+
+		return hueOf(classNameHash(held), 16);
+	}
+
+	// A simple mixing hash over the class name's bytes -- this owes
+	// nothing to cryptographic quality, only to spreading different
+	// names across hueOf's sixteen steps instead of clumping them.
+	private static int classNameHash(Weapon w)
+	{
+		if (!w) return 0;
+		// GetClassName() returns a Name, not a String -- concatenation is
+		// the conversion ZScript actually offers between the two.
+		string nm = "" .. w.GetClassName();
+		int h = 0;
+		int len = int(nm.Length());   // Length() is unsigned; the raw
+		                               // comparison against a signed loop
+		                               // counter is what the warning flagged.
+		for (int i = 0; i < len; ++i)
+			h = (h * 131 + nm.ByteAt(i)) & 0x7FFFFFFF;
+		return h;
+	}
+
 	// Ammo as a fraction of capacity, or -1 for a weapon that uses none.
 	private static double ammoFrac(Weapon w)
 	{
@@ -1620,49 +1902,42 @@ class wr_Rig : EventHandler
 		c.Dim(col, amt, x, fy(y + h), w, h);
 	}
 
-	// One row of pips. Split out because there are two of them now -- primary
-	// and, when alt fire has its own reserve, secondary -- and they differ only
-	// by which numbers and which colour.
+	// AMMO AS A BAR, not pips any more.
 	//
-	// A count of PIP_LITERAL_MAX or fewer gets one pip per ROUND, which is the
-	// reading you actually want with four shells left. Above that it falls back
-	// to tenths, because forty countable rectangles is a worse bar than a bar.
-	private void pipRow(Canvas c, int top, int rounds, double frac, int cap, color tint)
+	// Pips had a real fault, not a cosmetic one: PIP_LITERAL_MAX drew one
+	// pip per round below twelve and ten pips as tenths above it, so a
+	// magazine draining PAST that line changed how many pips were on
+	// screen and which ones were lit -- a 30-round mag went from ten
+	// tenths-pips straight to twelve literal ones at the exact moment it
+	// crossed 12 rounds. Nothing reloaded; the display just reflowed
+	// mid-drain, and from across a ring that reads as a refill. Reported
+	// exactly that way: "the pips count down, then resize/refill, then
+	// count down again". A bar has one state, always -- it shrinks
+	// monotonically as you fire and grows only on an actual reload.
+	private void barRow(Canvas c, int top, double frac, color tint)
 	{
 		if (frac < 0.0) return;
-
-		int lit, total;
-		if (rounds >= 0 && rounds <= PIP_LITERAL_MAX)
-		{
-			total = max(rounds, 1);
-			if (cap > 0 && cap <= PIP_LITERAL_MAX) total = cap;
-			lit = rounds;
-		}
-		else
-		{
-			total = PIP_TENTHS;
-			lit = int(frac * PIP_TENTHS + 0.5);
-		}
 
 		int left  = BAR_INSET;
 		int right = FACE_W - BAR_INSET;
 		int bot   = top + BAR_H;
 
-		int gap = 2;
-		int pipW = max(2, ((right - left) - gap * (total - 1)) / max(total, 1));
+		// The trough, always drawn -- an empty bar still says "there is a
+		// gauge here", the same reason a token card's trough draws at
+		// zero fill instead of vanishing.
+		clearFlipped(c, left, top, right, bot, dim(tint, 0.18));
 
-		for (int p = 0; p < total; ++p)
-		{
-			int x0 = left + p * (pipW + gap);
-			int x1 = x0 + pipW;
-			if (x1 > right) break;
-
-			clearFlipped(c, x0, top, x1, bot,
-				(p < lit) ? tint : dim(tint, 0.18));
-		}
+		int fillR = left + int((right - left) * clamp(frac, 0.0, 1.0));
+		if (fillR > left)
+			clearFlipped(c, left, top, fillR, bot, tint);
 	}
 
-	private TextureID paintFace(int pool, Weapon held, int slot, bool dry)
+	// faceColor used to be a raw slot number, resolved to a colour inside
+	// this function -- moved to cardColorFor(), called ONCE per card at
+	// build time (gatherWeapons), because this function itself repaints
+	// every tic in canvas mode and a per-tic cross-mod Service round trip
+	// for every card was not a cost worth paying four times over below.
+	private TextureID paintFace(int pool, Weapon held, color faceColor, bool dry)
 	{
 		TextureID none;
 		none.SetInvalid();
@@ -1690,9 +1965,9 @@ class wr_Rig : EventHandler
 			clearFlipped(canvas, 0, y0, FACE_W, y1, dim(bg, k));
 		}
 
-		// The slot's colour along the top edge, same promise the accent bar
-		// makes on the composed card.
-		clearFlipped(canvas, 0, 0, FACE_W, FACE_ACCENT, slotColor(slot));
+		// The card's colour along the top edge, same promise the accent
+		// bar makes on the composed card.
+		clearFlipped(canvas, 0, 0, FACE_W, FACE_ACCENT, faceColor);
 
 		// THE GUN RUNS OFF THE EDGES.
 		//
@@ -1776,37 +2051,24 @@ class wr_Rig : EventHandler
 		// whose artwork works best.
 		dimFlipped(canvas, 0x000000, 0.62, 0, READOUT_TOP, FACE_W, FACE_H - READOUT_TOP);
 
-		// AMMO AS PIPS.
-		//
-		// A bar answers "how full"; pips answer "how many", and for a shotgun
-		// with four shells left that is the question you are actually asking. A
-		// count of twelve or under gets one pip per ROUND -- literally the shots
-		// you have. Above that it falls to ten pips as tenths, because forty
-		// individually countable rectangles is just a worse bar.
+		// AMMO AS A BAR. See the note on barRow() for why pips came out --
+		// this reads "how much is left", monotonically, whatever the count.
 		if (cv("wr_ammo", 1.0) > 0.0)
 		{
-			pipRow(canvas, PIP_TOP, ammoLoaded(held), ammoLoadedFrac(held),
-			       ammoLoadedCap(held), slotColor(slot));
+			barRow(canvas, PIP_TOP, ammoLoadedFrac(held), faceColor);
 
 			// The second row is the RESERVE on a magazine weapon and the alt
 			// fire pile on one with a real alt fire -- never both, since a
 			// weapon cannot use Ammo2 for two things at once. Cooler tint
 			// either way so it is never mistaken for more of the first row.
-			//
-			// Pips are literal up to twelve, which is right for a magazine and
-			// wrong for a reserve of two hundred, so the reserve is always
-			// drawn as tenths by handing it a count above the literal ceiling.
 			if (hasMagazine(held) && held.Ammo1 != null && held.Ammo1.MaxAmount > 0)
 			{
 				double rfrac = clamp(double(held.Ammo1.Amount) / held.Ammo1.MaxAmount, 0.0, 1.0);
-				pipRow(canvas, PIP_TOP + BAR_H + 3, PIP_LITERAL_MAX + 1, rfrac,
-				       held.Ammo1.MaxAmount, COLOR_ALT_PIP);
+				barRow(canvas, PIP_TOP + BAR_H + 3, rfrac, COLOR_ALT_PIP);
 			}
 			else
 			{
-				pipRow(canvas, PIP_TOP + BAR_H + 3, ammoLeft2(held), ammoFrac2(held),
-				       hasSecondAmmo(held) ? held.Ammo2.MaxAmount : -1,
-				       COLOR_ALT_PIP);
+				barRow(canvas, PIP_TOP + BAR_H + 3, ammoFrac2(held), COLOR_ALT_PIP);
 			}
 		}
 
@@ -1833,14 +2095,14 @@ class wr_Rig : EventHandler
 			}
 		}
 
-		// The slot's colour as a corner chevron as well as the top stripe, so
-		// the ring is eight distinguishable SHAPES and not only eight hues --
-		// which is what survives being in the corner of your eye.
-		canvas.DrawThickLine(-4, fy(26), 30, fy(-8), 9, slotColor(slot), 255);
+		// The card's colour as a corner chevron as well as the top stripe,
+		// so the ring is eight distinguishable SHAPES and not only eight
+		// hues -- which is what survives being in the corner of your eye.
+		canvas.DrawThickLine(-4, fy(26), 30, fy(-8), 9, faceColor, 255);
 
 		// A hairline round the outside, so the artwork has an edge even when the
 		// plate behind it is switched off.
-		canvas.DrawLineFrame(dim(slotColor(slot), 0.45), 0, 0, FACE_W, FACE_H);
+		canvas.DrawLineFrame(dim(faceColor, 0.45), 0, 0, FACE_W, FACE_H);
 
 		return TexMan.CheckForTexture(name, TexMan.Type_Any);
 	}
@@ -1858,7 +2120,7 @@ class wr_Rig : EventHandler
 			let held = Weapon(pmo.FindInventory(mTypes[i]));
 			if (held == null) continue;
 
-			paintFace(i, held, mCardSlots[i], ammoLoaded(held) == 0);
+			paintFace(i, held, mCardColor[i], ammoLoaded(held) == 0);
 		}
 	}
 
@@ -2016,7 +2278,7 @@ class wr_Rig : EventHandler
 			mAccents.Push(level.AddBillboardPersistent(
 				(0, 0, 0), 3.5, 0.3, 0, 0,
 				LevelLocals.BBF_FIXED, LevelLocals.BB_PANEL, 0,
-				slotColor(mCardSlots[i]), LevelLocals.BBFL_NOHIT, 0, ""));
+				mCardColor[i], LevelLocals.BBFL_NOHIT, 0, ""));
 
 			// The weapon's name, floated just off the panel face.
 			//
@@ -2054,7 +2316,7 @@ class wr_Rig : EventHandler
 
 			if (cv("wr_canvas", 0.0) > 0.0 && heldNow != null && i < FACE_POOL)
 			{
-				TextureID face = paintFace(i, heldNow, mCardSlots[i], rest == COLOR_DRY);
+				TextureID face = paintFace(i, heldNow, mCardColor[i], rest == COLOR_DRY);
 				if (face.IsValid())
 				{
 					fid = level.AddBillboardPersistent(
@@ -2171,7 +2433,7 @@ class wr_Rig : EventHandler
 				gid = level.AddBillboardPersistent(
 					(0, 0, 0), 3.5, 0.35, 0, 0,
 					LevelLocals.BBF_FIXED, LevelLocals.BB_BAR, int(frac * 100.0 + 0.5),
-					slotColor(mCardSlots[i]), LevelLocals.BBFL_NOHIT, 0, "");
+					mCardColor[i], LevelLocals.BBFL_NOHIT, 0, "");
 			}
 			mGauges.Push(gid);
 			mAmmos.Push(aid);
@@ -2356,6 +2618,12 @@ class wr_Rig : EventHandler
 		double ringR = radius;
 		double minR = (cellW * 0.5) / max(sin(180.0 / max(ringCount, 2)), 0.05);
 		if (minR > ringR) ringR = minR;
+
+		// Published for RingClearance() -- anything parking beside the
+		// ring (the weapon stat card) needs to know it has grown past the
+		// tuned base radius when the count pushes it out, not just the
+		// static wr_radius*wr_scale value.
+		mLastRingR = ringR;
 
 		Vector3 eye = pmo.Pos + (0, 0, pmo.player.viewheight);
 
@@ -3109,7 +3377,7 @@ class wr_Rig : EventHandler
 	private color hoverColor() const
 	{
 		int card = cardIndexOf(mHovered);
-		if (card >= 0 && card < mCardSlots.Size()) return slotColor(mCardSlots[card]);
+		if (card >= 0 && card < mCardColor.Size()) return mCardColor[card];
 		return COLOR_BEAM_IDLE;
 	}
 
@@ -3394,7 +3662,7 @@ class wr_Rig : EventHandler
 		if (mode == 1) return 0xFFF0D8;
 		if (mode == 2) return 0;              // per-particle, see sparks()
 
-		if (card >= 0 && card < mCardSlots.Size()) return slotColor(mCardSlots[card]);
+		if (card >= 0 && card < mCardColor.Size()) return mCardColor[card];
 		return COLOR_BEAM_IDLE;
 	}
 
@@ -3609,7 +3877,7 @@ class wr_Rig : EventHandler
 		// radius change at all -- A_AttachLight replaces a light with a matching
 		// id rather than stacking a second one on top.
 		mLight.A_AttachLight('wrcard', DynamicLight.PointLight,
-			slotColor(mCardSlots[card]), r1, int(r1 * 0.35),
+			mCardColor[card], r1, int(r1 * 0.35),
 			DynamicLight.LF_ATTENUATE);
 	}
 
@@ -3787,22 +4055,11 @@ class wr_Rig : EventHandler
 
 	private void commit(PlayerPawn pmo)
 	{
-		// A card from the fan names one specific weapon; a slot card names that
-		// slot's first. Checking the fan first matters -- while a fan is open its
-		// parent card is still hittable, and the fan is the more specific answer.
-		Class<Weapon> want = null;
-
-		int sub = subIndexOf(mHovered);
-		if (sub >= 0 && sub < mSubTypes.Size())
-		{
-			want = mSubTypes[sub];
-		}
-		else
-		{
-			int index = cardIndexOf(mHovered);
-			if (index < 0 || index >= mTypes.Size()) return;
-			want = mTypes[index];
-		}
+		// Same resolution HoveredClass() answers for anyone asking from
+		// outside -- pulled into one place so the two can never disagree
+		// about what a press is about to do.
+		Class<Weapon> want = HoveredClass();
+		if (want == null) return;
 
 		let weap = Weapon(pmo.FindInventory(want));
 		if (weap == null) { closeRig(); return; }
@@ -3996,11 +4253,6 @@ class wr_Rig : EventHandler
 	// just a one-line one -- otherwise the top line of a wrapped name lands on
 	// undimmed artwork and loses its contrast exactly where it got bigger.
 	const READOUT_TOP = 32;
-
-	// At or under this many rounds, one pip means one SHOT. Above it, ten pips
-	// mean tenths -- forty countable rectangles is just a worse bar.
-	const PIP_LITERAL_MAX = 12;
-	const PIP_TENTHS      = 10;
 
 	// The box an icon is fitted into, as a fraction of the card.
 	const ICON_W_FRAC = 0.72;

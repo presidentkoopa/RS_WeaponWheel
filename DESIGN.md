@@ -59,8 +59,11 @@ it stays perfectly sharp at any size and the name can carry a glow.
 coordinates and the card shows that one image. This buys things a billboard
 cannot do at all: a quad has no clip, so a composed card can only ever *shrink*
 a sprite until it fits a box, while a canvas **crops** — the weapon runs off the
-card edges. Ammo becomes pips rather than a bar, because with four shells left
-"how many" is the question, not "how full".
+card edges. Ammo is a fill bar — it used to be pips, one per round below
+twelve and ten as tenths above, and that had a real fault: a magazine
+draining past twelve changed how many pips were lit *and* how many were on
+screen, which reads as a mid-drain refill even though nothing reloaded. A
+bar has one state, always, and shrinks monotonically as you fire.
 
 The name and the count stay as field billboards on top either way. A canvas is a
 raster and shows its pixels held close in VR; `BB_SEGMENT` never will.
