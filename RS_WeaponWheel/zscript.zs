@@ -1,4 +1,4 @@
-version "4.10"
+﻿version "4.10"
 
 // Wrist rig -- weapon cards in a ring around one hand, taken by pointing at
 // one and pulling the trigger, or by reaching into it.
@@ -181,7 +181,6 @@ class wr_Rig : EventHandler
 	Array<double> mAmmoW;         // bezel width, from what the readout says
 
 	int mOpenTics;                // drives the grow-in
-	double mCentreIconW, mCentreIconH;
 
 	Array<int> mAccents;          // the slot-coloured bar along the card's top
 	Array<int> mGauges;           // BB_BAR: ammo as a proportion
@@ -201,7 +200,6 @@ class wr_Rig : EventHandler
 	// not a parameter, which is fine, because it is a better curve than the one
 	// that was here.
 	Array<int> mGroups;
-	int mCentreGroup;
 	int mFanGroup;
 
 	// Tics left in the collapse. The billboards outlive closeRig by exactly this
@@ -302,7 +300,6 @@ class wr_Rig : EventHandler
 	Vector3 mLastPoke;
 	bool mHavePoke;
 	int  mLockTics;
-	int  mCentreId, mCentreIcon, mCentreLabel;
 	bool    mTouching;            // hand is physically inside a card
 	bool    mBtOn;                // we are the ones holding bullet time on
 
@@ -503,7 +500,8 @@ class wr_Rig : EventHandler
 
 		bulletTime(true);
 
-		spawnCentre(pmo);
+		// spawnCentre went with the centre cell -- the data sheet stands there
+		// now. See the note in layout() where its positioning used to be.
 		layout(pmo);
 
 		// Declared once, resolved per frame. The engine's growth curve eases out
@@ -518,7 +516,6 @@ class wr_Rig : EventHandler
 			{
 				level.AnimateBillboardGroup(mGroups[i], 0.0, 1.0, growTics);
 			}
-			if (mCentreGroup != 0) level.AnimateBillboardGroup(mCentreGroup, 0.0, 1.0, growTics);
 		}
 
 		feedback(Sound("wristrig/open"), 0.40, 55);
@@ -595,7 +592,6 @@ class wr_Rig : EventHandler
 			{
 				level.AnimateBillboardGroup(mGroups[i], 1.0, 0.0, CLOSE_TICS);
 			}
-			if (mCentreGroup != 0) level.AnimateBillboardGroup(mCentreGroup, 1.0, 0.0, CLOSE_TICS);
 			if (mFanGroup != 0)    level.AnimateBillboardGroup(mFanGroup,    1.0, 0.0, CLOSE_TICS);
 
 			mClosingTics = CLOSE_TICS;
@@ -1076,10 +1072,12 @@ class wr_Rig : EventHandler
 		double sw = panelW * SHEET_W_CARDS;
 		double sh = panelH * SHEET_H_CARDS;
 
-		// Clear of the ring's own extent plus half the sheet, so growing the
-		// ring never walks the cards into it.
-		Vector3 centre = wrist + (0, 0, rise)
-		               + viewRight * (ringR + sw * 0.5 + panelW * SHEET_GAP_CARDS);
+		// DEAD CENTRE, where the centre cell used to be. Zero degrees off the
+		// view axis no matter how large the ring grows, and out of reach of
+		// every fan, which expands outward. layout() floors ringR against the
+		// sheet's own half-width so the cards orbit clear of it rather than
+		// through it.
+		Vector3 centre = wrist + (0, 0, rise);
 
 		// Toward the eye, so text sits proud of its plate instead of z-fighting
 		// it -- the same lift every card label uses.
@@ -1177,10 +1175,6 @@ class wr_Rig : EventHandler
 		{
 			if (mSlotNums[i]) level.RemoveBillboard(mSlotNums[i]);
 		}
-		if (mCentreId)    level.RemoveBillboard(mCentreId);
-		if (mCentreIcon)  level.RemoveBillboard(mCentreIcon);
-		if (mCentreLabel) level.RemoveBillboard(mCentreLabel);
-		mCentreId = mCentreIcon = mCentreLabel = 0;
 
 		// Groups LAST, and not optional. A member left pointing at a dead group
 		// silently snaps back to full size, so releasing them is the correct way
@@ -1194,8 +1188,6 @@ class wr_Rig : EventHandler
 		mSlotNums.Clear();
 		mGroups.Clear();
 
-		if (mCentreGroup != 0) level.RemoveBillboardGroup(mCentreGroup);
-		mCentreGroup = 0;
 
 		let pmo = players[consoleplayer].mo;
 
@@ -2009,55 +2001,6 @@ class wr_Rig : EventHandler
 		return it.GetSpriteTextureID(0);
 	}
 
-	private void spawnCentre(PlayerPawn pmo)
-	{
-		mCentreId = mCentreIcon = mCentreLabel = 0;
-
-		let held = (mRigHand == 1) ? players[consoleplayer].OffhandWeapon
-		                           : players[consoleplayer].ReadyWeapon;
-
-		// AN EMPTY HAND STILL GETS A CENTRE.
-		//
-		// This used to return here, so summoning the rig on a bare off hand gave
-		// a ring with a hole in the middle: no anchor to read the bearings
-		// against, and no statement of what "do nothing" would leave you with.
-		// The centre is the neutral option, and neutral is a real answer even
-		// when the answer is nothing.
-		mCentreId = level.AddBillboardPersistent(
-			(0, 0, 0), 3.5, 2.5, 0, 0,
-			LevelLocals.BBF_FIXED, LevelLocals.BB_PANEL, 0,
-			COLOR_CENTRE, LevelLocals.BBFL_NOHIT, 0, "");
-		level.SetBillboardGradient(mCentreId, GRAD_CENTRE);
-
-		mCentreGroup = level.AddBillboardGroup((0, 0, 0));
-		level.SetBillboardGroup(mCentreId, mCentreGroup);
-
-		mCentreIconW = ICON_W_FRAC;
-		mCentreIconH = ICON_H_FRAC;
-
-		if (held != null)
-		{
-			TextureID icon = iconFor(held);
-			if (icon.IsValid())
-			{
-				[mCentreIconW, mCentreIconH] = fitIcon(icon, ICON_W_FRAC, ICON_H_FRAC);
-
-				mCentreIcon = level.AddBillboardPersistent(
-					(0, 0, 0), 3.5, 2.5, 0, 0,
-					LevelLocals.BBF_FIXED, LevelLocals.BB_TEXTURE, icon.GetIndex(),
-					0xFFFFFF, LevelLocals.BBFL_NOHIT, 0, "");
-				level.SetBillboardGroup(mCentreIcon, mCentreGroup);
-			}
-		}
-
-		string centreTag = (held != null) ? held.GetTag() : "Empty";
-
-		mCentreLabel = level.AddBillboardPersistent(
-			(0, 0, 0), 3.5, 2.5, 0, 0,
-			LevelLocals.BBF_FIXED, LevelLocals.BB_TEXT, 0,
-			COLOR_CENTRE_TEXT, LevelLocals.BBFL_NOHIT, 0, centreTag);
-		level.SetBillboardGroup(mCentreLabel, mCentreGroup);
-	}
 
 	// THE SECONDARY PILE, when there is a separate one.
 	//
@@ -3197,10 +3140,21 @@ class wr_Rig : EventHandler
 		double minR = (cellW * 0.5) / max(sin(180.0 / max(ringCount, 2)), 0.05);
 		if (minR > ringR) ringR = minR;
 
+		// THE SHEET SETS A FLOOR ON THE RING.
+		//
+		// It stands at the centre now, so a ring tuned smaller than the sheet
+		// is wide would orbit its cards straight through the panel. Half the
+		// sheet, plus half a card, plus the same gap the sheet already used
+		// when it sat beside the ring.
+		//
+		// This only ever pushes the ring OUT. wr_radius and the count-driven
+		// minR above both still win when they are larger, so nothing about a
+		// crowded ring changes.
+		double sheetR = panelW * (SHEET_W_CARDS * 0.5 + 0.5 + SHEET_GAP_CARDS);
+		if (sheetR > ringR) ringR = sheetR;
+
 		// Published for RingClearance() -- anything parking beside the
-		// ring (the weapon stat card) needs to know it has grown past the
-		// tuned base radius when the count pushes it out, not just the
-		// static wr_radius*wr_scale value.
+		// ring needs the count-grown extent, not the tuned base value.
 		mLastRingR = ringR;
 
 		Vector3 eye = pmo.Pos + (0, 0, pmo.player.viewheight);
@@ -3209,32 +3163,21 @@ class wr_Rig : EventHandler
 		// ringR above has already grown to whatever the card count needed.
 		layoutSheet(wrist, viewYaw, viewRight, tilt, rise, ringR, panelW, panelH);
 
-		// The centre is left empty. That is where your hand already is and what
-		// you are already holding -- so opening the rig and not moving is "keep
-		// what I have", and every card on the ring is a genuine change.
-		if (mCentreId != 0)
-		{
-			Vector3 cpos = wrist + (0, 0, rise);
-			Vector3 clift = (cos(viewYaw + 180), sin(viewYaw + 180), 0) * LABEL_LIFT;
-
-			level.MoveBillboard(mCentreId, cpos);
-			level.ResizeBillboard(mCentreId, panelW, panelH);
-			level.OrientBillboard(mCentreId, viewYaw + 180, tilt, LevelLocals.BBF_FIXED);
-
-			if (mCentreIcon != 0)
-			{
-				level.MoveBillboard(mCentreIcon, cpos + clift + (0, 0, panelH * 0.16));
-				level.ResizeBillboard(mCentreIcon, panelW * mCentreIconW,
-				                                   panelH * mCentreIconH);
-				level.OrientBillboard(mCentreIcon, viewYaw + 180, tilt, LevelLocals.BBF_FIXED);
-			}
-			if (mCentreLabel != 0)
-			{
-				level.MoveBillboard(mCentreLabel, cpos + clift - (0, 0, panelH * 0.30));
-				level.ResizeBillboard(mCentreLabel, panelW, panelH * LABEL_HEIGHT_FRAC);
-				level.OrientBillboard(mCentreLabel, viewYaw + 180, tilt, LevelLocals.BBF_FIXED);
-			}
-		}
+		// THE CENTRE CELL IS GONE. The data sheet stands there instead.
+		//
+		// It was a card showing what the hand already held, unselectable, so
+		// that "open the rig and do nothing" had something to point at. In
+		// practice it stated the one thing you could already feel -- what is
+		// in your hand -- and nothing else, and the sheet answers that same
+		// question far better while also answering it about whatever you are
+		// pointing at.
+		//
+		// The centre is also the only placement that survives the ring
+		// growing. Beside the ring the sheet rides ringR, which reaches 20.9
+		// units at 25 cards and puts the panel 40 degrees off axis -- a head
+		// turn away from the card you are choosing. At the centre it is at
+		// zero degrees whatever the ring does, and fans expand OUTWARD so
+		// they can never reach it.
 
 		// THE CARDS GROW OUT OF YOUR WRIST.
 		//
@@ -4756,8 +4699,6 @@ class wr_Rig : EventHandler
 	const COLOR_IDLE  = 0x2E3440;
 	const COLOR_HOVER = 0xEF9F27;
 	const COLOR_LABEL = 0xD8DEE9;
-	const COLOR_CENTRE      = 0x1C2029;
-	const COLOR_CENTRE_TEXT = 0x7A8494;
 	const COLOR_SUB         = 0x4A3A20;
 	const HIT_PAD           = 1.12;
 	const PULSE_SPEED       = 14.0;   // degrees per tic
@@ -4872,7 +4813,6 @@ class wr_Rig : EventHandler
 	const GRAD_IDLE = 0xFF11141B;
 	const GRAD_DRY  = 0xFF1E1013;
 	const GRAD_HOVER = 0xFF8A5A12;
-	const GRAD_CENTRE = 0xFF0E1116;
 
 	// Neon on the hovered name. radius is a fraction of the atlas spread, so 1
 	// is the practical maximum -- past the spread there is no field left and the
