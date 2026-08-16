@@ -313,6 +313,13 @@ class wr_Rig : EventHandler
 	int mCollapseGrace;           // consecutive tics on a genuine off-fan
 	                               // hit -- see updateHover's own comment
 
+	// TEMPORARY -- paintFace's own wr_debug prints, throttled to the first
+	// tic after each ring-open instead of every tic repaintFaces runs (which
+	// is every tic the ring is open, one call per card -- unthrottled this
+	// flooded the console past readable, which is why the first debug pass
+	// asking for these numbers came back as "WHERE").
+	bool mDebugPainted;
+
 	bool  mWantAutoOpen;
 	Vector3 mAnchor;              // the ring centre, out in front of the hand
 	double  mAnchorYaw;
@@ -522,6 +529,7 @@ class wr_Rig : EventHandler
 		mSubFlipCard = -1;
 		mFlipTics  = 0;
 		mLockTics  = int(cv("wr_locktics", 140));
+		mDebugPainted = false;
 
 
 		// Claim the sticks. Snap turn and stick movement are decided in the VR
@@ -2770,7 +2778,7 @@ class wr_Rig : EventHandler
 	// build time (gatherWeapons), because this function itself repaints
 	// every tic in canvas mode and a per-tic cross-mod Service round trip
 	// for every card was not a cost worth paying four times over below.
-	private TextureID paintFace(int pool, Weapon held, color faceColor, bool dry)
+	private TextureID paintFace(int pool, Weapon held, color faceColor, bool dry, bool dbg = false)
 	{
 		TextureID none;
 		none.SetInvalid();
@@ -2812,6 +2820,14 @@ class wr_Rig : EventHandler
 		// muzzle leave the card, and it reads as a weapon rather than a picture
 		// of one.
 		TextureID icon = iconFor(held);
+
+		if (dbg)
+		{
+			Console.Printf("\c[Cyan]RSVR HUD face[%d]:\c- %s icon.valid=%d idx=%d",
+				pool, held ? (held.GetClassName() .. "") : "null",
+				int(icon.IsValid()), icon.GetIndex());
+		}
+
 		if (icon.IsValid())
 		{
 			Vector2 sz = TexMan.GetScaledSize(icon);
@@ -2847,6 +2863,11 @@ class wr_Rig : EventHandler
 			// set, they always do.
 			double cx = FACE_W * 0.5;
 			double cy = ICON_TOP + ICON_BOX_H * 0.5;
+
+			if (dbg) Console.Printf(
+				"\c[Cyan]RSVR HUD draw[%d]:\c- sz=(%.1f,%.1f) aspect=%.2f iw=%.1f ih=%.1f "
+				"pos=(%.1f,%.1f) canvas=%dx%d",
+				pool, sz.X, sz.Y, aspect, iw, ih, cx, fy(int(cy)), FACE_W, FACE_H);
 
 			// A dark twin, offset, underneath. Weapon sprites are lit every
 			// which way across a weapon set; a shadow gives all of them the same
@@ -2946,6 +2967,12 @@ class wr_Rig : EventHandler
 	{
 		if (cv("wr_canvas", 0.0) <= 0.0) return;
 
+		// TEMPORARY -- one tic's worth of paintFace's own debug prints, not
+		// one tic's worth PER CARD FOREVER. This runs every tic the ring is
+		// open; unthrottled, wr_debug turned this into hundreds of lines a
+		// second and nothing was readable.
+		bool dumpNow = cv("wr_debug", 0.0) > 0.0 && !mDebugPainted;
+
 		for (int i = 0; i < mFaces.Size() && i < mTypes.Size(); ++i)
 		{
 			if (mFaces[i] == 0) continue;
@@ -2953,8 +2980,10 @@ class wr_Rig : EventHandler
 			let held = Weapon(pmo.FindInventory(mTypes[i]));
 			if (held == null) continue;
 
-			paintFace(i, held, mCardColor[i], ammoLoaded(held) == 0);
+			paintFace(i, held, mCardColor[i], ammoLoaded(held) == 0, dumpNow);
 		}
+
+		if (dumpNow) mDebugPainted = true;
 	}
 
 	// Magazine size. Read by ammoLoadedFrac, which turns a round count into the
@@ -4518,13 +4547,25 @@ class wr_Rig : EventHandler
 		{
 			// The lozenge's own rule, and it takes DIGITS -- a badge showing a
 			// separator is not a case it has, so the separator is not counted.
-			return AMMO_H_FRAC * CARD_STRETCH * (0.60 + chars * 0.42) * 2.0;
+			//
+			// Capped for the same reason the segment branch below is: nothing
+			// here bounded it against a long reserve count, and the plate's
+			// corners are rounded, so a box sized to the FULL rectangle bleeds
+			// past the actual visible edge before it ever reaches 100%. No
+			// floor needed -- the formula's own minimum, at a single digit,
+			// never comes close to this ceiling.
+			return min(AMMO_H_FRAC * CARD_STRETCH * (0.60 + chars * 0.42) * 2.0, 0.90);
 		}
 
 		// The segment payload fits its glyphs to the quad, so a longer string
 		// in a fixed box just gets thinner letters. Widening with the text keeps
 		// "148|12" as legible as "24" instead of squeezing it.
-		return clamp(AMMO_W_FRAC * (0.55 + chars * 0.22), AMMO_W_FRAC, 0.96);
+		//
+		// Ceiling is 0.90, not the box's own full width: the plate's corners
+		// are rounded (wr_plate_radius), so a readout sized to the flat
+		// rectangle's edge draws past the plate's actual visible surface --
+		// this is what "glyphs extend off the card" turned out to be.
+		return clamp(AMMO_W_FRAC * (0.55 + chars * 0.22), AMMO_W_FRAC, 0.90);
 	}
 
 	// Which hand, if any, already has this weapon.
