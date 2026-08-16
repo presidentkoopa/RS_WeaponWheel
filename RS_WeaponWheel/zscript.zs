@@ -247,6 +247,19 @@ class wr_Rig : EventHandler
 	int mFlipCard;
 	int mFlipTics;
 
+	// THE DATA SHEET -- FAKE, ON PURPOSE, FOR NOW.
+	//
+	// A single larger panel parked beside the ring. Every value on it is a
+	// hardcoded string: this exists to be LOOKED AT in a headset, so the
+	// border, the row spacing, the colours and the text size can be judged
+	// before any of it is wired to a real weapon. Nothing here reads the
+	// hovered card yet.
+	int          mSheetPlate;
+	int          mSheetAccent;
+	int          mSheetTitle;
+	Array<int>   mSheetRows;
+	Array<int>   mSheetBars;
+
 	// The fan that opens out of a multi-weapon slot.
 	Array<int>   mSubIds;
 	Array<int>   mSubIcons;
@@ -454,6 +467,7 @@ class wr_Rig : EventHandler
 
 		spawnPanels();
 		spawnCardModels(pmo);
+		buildSheet();
 
 		mOpen      = true;
 		mHovered   = 0;
@@ -595,11 +609,170 @@ class wr_Rig : EventHandler
 		destroyPanels();
 	}
 
+	//==========================================================================
+	// THE DATA SHEET -- A FAKE ONE.
+	//
+	// Hardcoded rows, built once with the ring and parked to one side of it.
+	// The point is to get a panel of the right SIZE, with a border, rows that
+	// do not collide and text that can actually be read at arm's length, in
+	// front of a headset -- before any of it is pointed at a real weapon.
+	//
+	// COMPOSED BILLBOARDS, NOT A CANVAS. A canvas paints in 2D pixel
+	// coordinates whose Y axis runs the opposite way to everything else here,
+	// which is why this file carries fy()/clearFlipped()/dimFlipped() at all.
+	// The last panel this project tried was a canvas and drew upside down
+	// three separate times. A stack of BB_TEXT billboards has no Y axis to get
+	// backwards -- each row is placed in map units like every card is.
+	//
+	// Every row is its own billboard so it can carry its own colour, which is
+	// the whole reason the sheet is worth having over a bigger card.
+	//==========================================================================
+	private void buildSheet()
+	{
+		clearSheet();
+
+		// The plate, and a hit-free border. plateKind()/plateShape() are the
+		// same solved-rectangle payload the cards use, so the sheet is made of
+		// the same material as the thing it sits next to rather than looking
+		// like a different mod's window.
+		mSheetPlate = level.AddBillboardPersistent(
+			(0, 0, 0), 3.5, 2.5, 0, 0,
+			LevelLocals.BBF_FIXED, plateKind(), plateShape(),
+			SHEET_BG, LevelLocals.BBFL_NOHIT, 0, "");
+		level.SetBillboardGradient(mSheetPlate, SHEET_BG2);
+
+		// The stripe along the top, same promise the cards' accent makes.
+		mSheetAccent = level.AddBillboardPersistent(
+			(0, 0, 0), 3.5, 0.3, 0, 0,
+			LevelLocals.BBF_FIXED, LevelLocals.BB_PANEL, 0,
+			SHEET_ACCENT, LevelLocals.BBFL_NOHIT, 0, "");
+
+		mSheetTitle = level.AddBillboardPersistent(
+			(0, 0, 0), 3.5, 2.5, 0, 0,
+			LevelLocals.BBF_FIXED, LevelLocals.BB_TEXT, 0,
+			SHEET_ACCENT, LevelLocals.BBFL_NOHIT, 0, "PLASMA RIFLE");
+
+		// FAKE ROWS. Label and value in one string per row -- one billboard,
+		// one colour, no second column to keep aligned. Real data replaces the
+		// strings and nothing about the layout has to move.
+		sheetRow("SLOT 6        CELLS",   SHEET_DIM);
+		sheetRow("SHOTS READY      38",   SHEET_HOT);
+		sheetRow("IN RESERVE      186",   SHEET_COOL);
+		sheetRow("RATE OF FIRE   8.6/s",  SHEET_TEXT);
+		sheetRow("DAMAGE       22 avg",   SHEET_MEAS);
+		sheetRow("ACCURACY        71%",   SHEET_MEAS);
+		sheetRow("TWO-HANDED",            SHEET_ACCENT);
+
+		// Two gauges, for the same reason the cards have one: a number tells
+		// you the value and a bar tells you the value at a glance.
+		sheetBar(76, SHEET_HOT);
+		sheetBar(93, SHEET_COOL);
+	}
+
+	private void sheetRow(string text, color col)
+	{
+		mSheetRows.Push(level.AddBillboardPersistent(
+			(0, 0, 0), 3.5, 2.5, 0, 0,
+			LevelLocals.BBF_FIXED, LevelLocals.BB_TEXT, 0,
+			col, LevelLocals.BBFL_NOHIT, 0, text));
+	}
+
+	private void sheetBar(int pct, color col)
+	{
+		mSheetBars.Push(level.AddBillboardPersistent(
+			(0, 0, 0), 3.5, 0.35, 0, 0,
+			LevelLocals.BBF_FIXED, LevelLocals.BB_BAR, pct,
+			col, LevelLocals.BBFL_NOHIT, 0, ""));
+	}
+
+	private void clearSheet()
+	{
+		if (mSheetPlate)  level.RemoveBillboard(mSheetPlate);
+		if (mSheetAccent) level.RemoveBillboard(mSheetAccent);
+		if (mSheetTitle)  level.RemoveBillboard(mSheetTitle);
+		mSheetPlate = 0; mSheetAccent = 0; mSheetTitle = 0;
+
+		for (int i = 0; i < mSheetRows.Size(); ++i)
+		{
+			if (mSheetRows[i]) level.RemoveBillboard(mSheetRows[i]);
+		}
+		for (int i = 0; i < mSheetBars.Size(); ++i)
+		{
+			if (mSheetBars[i]) level.RemoveBillboard(mSheetBars[i]);
+		}
+		mSheetRows.Clear();
+		mSheetBars.Clear();
+	}
+
+	// Parked to one side of the ring, facing you the same way the centre cell
+	// does. Placed off mLastRingR rather than off wr_radius, so it steps out
+	// with the ring when a big weapon set grows it instead of being buried.
+	private void layoutSheet(Vector3 wrist, double viewYaw, Vector3 viewRight,
+	                         double tilt, double rise, double ringR,
+	                         double panelW, double panelH)
+	{
+		if (mSheetPlate == 0) return;
+
+		double sw = panelW * SHEET_W_CARDS;
+		double sh = panelH * SHEET_H_CARDS;
+
+		// Clear of the ring's own extent plus half the sheet, so growing the
+		// ring never walks the cards into it.
+		Vector3 centre = wrist + (0, 0, rise)
+		               + viewRight * (ringR + sw * 0.5 + panelW * SHEET_GAP_CARDS);
+
+		// Toward the eye, so text sits proud of its plate instead of z-fighting
+		// it -- the same lift every card label uses.
+		Vector3 lift = (cos(viewYaw + 180), sin(viewYaw + 180), 0) * LABEL_LIFT;
+		double  yaw  = viewYaw + 180;
+
+		level.MoveBillboard(mSheetPlate, centre);
+		level.ResizeBillboard(mSheetPlate, sw, sh);
+		level.OrientBillboard(mSheetPlate, yaw, tilt, LevelLocals.BBF_FIXED);
+
+		double top = sh * 0.5;
+
+		level.MoveBillboard(mSheetAccent, centre + lift + (0, 0, top - sh * 0.03));
+		level.ResizeBillboard(mSheetAccent, sw * 0.94, sh * 0.025);
+		level.OrientBillboard(mSheetAccent, yaw, tilt, LevelLocals.BBF_FIXED);
+
+		double titleH = sh * SHEET_TITLE_FRAC;
+		level.MoveBillboard(mSheetTitle, centre + lift + (0, 0, top - sh * 0.10));
+		level.ResizeBillboard(mSheetTitle, sw * 0.9, titleH);
+		level.OrientBillboard(mSheetTitle, yaw, tilt, LevelLocals.BBF_FIXED);
+
+		// Rows march down from under the title on a fixed pitch. A pitch, not a
+		// division of the remaining space: the row height then does not change
+		// when a row is added, which is what keeps the sheet readable as the
+		// real thing grows past seven rows.
+		double rowH = sh * SHEET_ROW_FRAC;
+		double y    = top - sh * SHEET_ROWS_TOP;
+
+		for (int i = 0; i < mSheetRows.Size(); ++i)
+		{
+			level.MoveBillboard(mSheetRows[i], centre + lift + (0, 0, y));
+			level.ResizeBillboard(mSheetRows[i], sw * 0.86, rowH);
+			level.OrientBillboard(mSheetRows[i], yaw, tilt, LevelLocals.BBF_FIXED);
+			y -= rowH * SHEET_ROW_PITCH;
+		}
+
+		// The gauges sit under the rows, full width, spaced like two more rows.
+		for (int i = 0; i < mSheetBars.Size(); ++i)
+		{
+			level.MoveBillboard(mSheetBars[i], centre + lift + (0, 0, y));
+			level.ResizeBillboard(mSheetBars[i], sw * 0.86, sh * 0.028);
+			level.OrientBillboard(mSheetBars[i], yaw, tilt, LevelLocals.BBF_FIXED);
+			y -= rowH * SHEET_ROW_PITCH;
+		}
+	}
+
 	// Every billboard and every group, gone. Split out of closeRig because the
 	// collapse animation needs a second, later place to call it from -- and
 	// because a half-freed ring is the one state nothing else here can handle.
 	private void destroyPanels()
 	{
+		clearSheet();
+
 		for (int i = 0; i < mIds.Size(); ++i)
 		{
 			if (mIds[i]) level.RemoveBillboard(mIds[i]);
@@ -2672,6 +2845,10 @@ class wr_Rig : EventHandler
 
 		Vector3 eye = pmo.Pos + (0, 0, pmo.player.viewheight);
 
+		// Beside the ring, off the SOLVED radius rather than the tuned one --
+		// ringR above has already grown to whatever the card count needed.
+		layoutSheet(wrist, viewYaw, viewRight, tilt, rise, ringR, panelW, panelH);
+
 		// The centre is left empty. That is where your hand already is and what
 		// you are already holding -- so opening the rig and not moving is "keep
 		// what I have", and every card on the ring is a genuine change.
@@ -4345,6 +4522,27 @@ class wr_Rig : EventHandler
 
 	// How far a card tumbles on its way in, in degrees of roll.
 	const ARRIVE_ROLL = 26.0;
+
+	// THE DATA SHEET, in card widths so it tracks wr_panel_* and wr_scale
+	// instead of being a fixed size that stops matching the moment either is
+	// touched. Deliberately much larger than a card -- it is one panel you
+	// read, not one of nine you glance at.
+	const SHEET_W_CARDS    = 2.6;
+	const SHEET_H_CARDS    = 3.2;
+	const SHEET_GAP_CARDS  = 0.55;   // daylight between ring and sheet
+	const SHEET_TITLE_FRAC = 0.085;  // title height, of sheet height
+	const SHEET_ROW_FRAC   = 0.055;  // one row's height
+	const SHEET_ROWS_TOP   = 0.21;   // where the first row starts, from the top
+	const SHEET_ROW_PITCH  = 1.45;   // row spacing as a multiple of row height
+
+	const SHEET_BG     = 0x0E1016;
+	const SHEET_BG2    = 0x1B2030;
+	const SHEET_ACCENT = 0x7F77DD;
+	const SHEET_TEXT   = 0xE8EAF0;
+	const SHEET_DIM    = 0x8D93A3;
+	const SHEET_HOT    = 0xEF9F27;
+	const SHEET_COOL   = 0x4FA3D1;
+	const SHEET_MEAS   = 0x5DCAA5;
 
 	// Where a fan's innermost ring sits, in cells out from its parent card.
 	//
