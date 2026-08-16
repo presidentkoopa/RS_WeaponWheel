@@ -259,6 +259,14 @@ class wr_Rig : EventHandler
 	int          mSheetTitle;
 	Array<int>   mSheetRows;
 	Array<int>   mSheetBars;
+	// Which weapon the rows currently describe, so the sheet is rebuilt when
+	// the selector moves and NOT every tic. BB_TEXT carries its string at
+	// creation and UpdateBillboard cannot change it, so a text change means
+	// destroying and recreating the row billboards -- cheap once per hover,
+	// wasteful thirty-five times a second.
+	Class<Weapon> mSheetShown;
+	bool          mSheetValid;
+	int           mSheetUsed;     // pool slots carrying a row this pass
 
 	// The fan that opens out of a multi-weapon slot.
 	Array<int>   mSubIds;
@@ -627,6 +635,144 @@ class wr_Rig : EventHandler
 	// Every row is its own billboard so it can carry its own colour, which is
 	// the whole reason the sheet is worth having over a bigger card.
 	//==========================================================================
+	// Rebuild the rows when, and only when, the selector lands on a different
+	// weapon. Called every tic; returns immediately in the common case.
+	private void refreshSheet(PlayerPawn pmo)
+	{
+		if (mSheetPlate == 0) return;
+
+		// Nothing hovered shows what the hand is already holding -- the same
+		// question the centre cell answers, so the sheet is never blank and
+		// never stale. Only when that is ALSO empty does it say so.
+		Class<Weapon> want = HoveredClass();
+		Weapon shown = want ? Weapon(pmo.FindInventory(want)) : null;
+		if (shown == null) shown = pmo.player.ReadyWeapon;
+
+		Class<Weapon> nowCls = shown ? shown.GetClass() : null;
+		if (mSheetValid && nowCls == mSheetShown) return;
+
+		mSheetShown = nowCls;
+		mSheetValid = true;
+		buildSheetRows(shown);
+	}
+
+	// THE ROWS, FROM THE WEAPON ITSELF.
+	//
+	// Engine fields only. Every value here exists on Weapon or Inventory, so
+	// this reads a gun from a mod that has never heard of this one -- which is
+	// the floor the sheet has to clear before any provider is asked anything.
+	//
+	// A SHORT SHEET IS THE HONEST ONE. Rows the engine cannot answer are not
+	// drawn as "--"; they are absent. Seven rows of dashes claims the data was
+	// expected and is missing, when the truth is the engine never had it.
+	private void buildSheetRows(Weapon w)
+	{
+		// RESTRUNG, NOT REBUILT. SetBillboardText retexts a live BB_TEXT and
+		// UpdateBillboard recolours it, so a hover change costs two calls per
+		// row instead of destroying and recreating every billboard on the
+		// panel. mSheetUsed is how many of the pool are carrying a row this
+		// pass; the rest are blanked rather than removed, so the pool is
+		// allocated once for the life of the ring and the row slots never move
+		// under the reader.
+		mSheetUsed = 0;
+
+		string title = w ? ("" .. w.GetTag()) : "EMPTY";
+		color  tint  = w ? cardColorFor(w, w.default.SlotNumber) : color(SHEET_DIM);
+
+		if (mSheetTitle != 0)
+		{
+			level.SetBillboardText(mSheetTitle, title);
+			level.UpdateBillboard(mSheetTitle, 0, tint);
+		}
+		if (mSheetAccent != 0) level.UpdateBillboard(mSheetAccent, 0, tint);
+
+		if (w == null)
+		{
+			sheetRow("(empty hand)", SHEET_DIM);
+			blankRestOfSheet();
+			return;
+		}
+
+		int slot = w.default.SlotNumber;
+		if (slot >= 1 && slot <= 9)
+			sheetRow(String.Format("SLOT %d", slot), SHEET_DIM);
+
+		// AMMO. The label is the ammo TYPE, because "this eats the same cells
+		// as what I am holding" is a real reason to pick one gun over another
+		// and it costs no extra row.
+		//
+		// NO DENOMINATOR. The obvious one, Ammo2.MaxAmount, is the ammo
+		// CLASS's default rather than this weapon's capacity -- ammo classes
+		// are routinely given headroom over it, so a full magazine would print
+		// as a fraction of something it never reaches. A count with no
+		// denominator is true; a fraction against the wrong ceiling is not.
+		if (w.Ammo1 == null && w.Ammo2 == null)
+		{
+			sheetRow("AMMO          --", SHEET_DIM);
+		}
+		else
+		{
+			string atag = ammoLabel(w);
+			int loaded  = ammoLoaded(w);
+
+			sheetRow(String.Format("%s %d", atag, loaded),
+			         loaded == 0 ? color(COLOR_AMMO_DRY) : color(SHEET_HOT));
+
+			// The reserve behind a magazine. Only where there IS a magazine --
+			// otherwise the loaded count already IS the reserve and printing
+			// it twice reads as twice the ammo.
+			if (hasMagazine(w) && w.Ammo1 != null)
+				sheetRow(String.Format("RESERVE %d", w.Ammo1.Amount), SHEET_COOL);
+		}
+
+		// SHOTS, not rounds -- the one derived number worth the arithmetic.
+		// Nobody decides on "186 cells"; they decide on "that is four shots".
+		int use = w.default.AmmoUse1;
+		if (use > 1)
+		{
+			int shots = ammoLoaded(w) / use;
+			sheetRow(String.Format("SHOTS %d  (%d/ea)", shots, use), SHEET_MEAS);
+		}
+
+		// HANDLING. Only the flags that change what your hands do, which is
+		// the part of a pick you feel rather than read.
+		string hands = "";
+		if (w.bMeleeWeapon)          hands = "MELEE";
+		else if (w.bTwoHanded)       hands = "TWO-HANDED";
+		if (w.bOffhandWeapon)        hands = hands.Length() ? (hands .. " / OFF") : "OFF HAND";
+		if (hands.Length())          sheetRow(hands, SHEET_ACCENT);
+
+		blankRestOfSheet();
+	}
+
+	// Empty every pool row this pass did not use. Blanked rather than removed
+	// so row N is always the same billboard at the same height -- a row that
+	// disappears and takes the rows below it up with it is the thing that
+	// makes a sheet unreadable while the selector is moving.
+	private void blankRestOfSheet()
+	{
+		for (int i = mSheetUsed; i < mSheetRows.Size(); ++i)
+		{
+			if (mSheetRows[i]) level.SetBillboardText(mSheetRows[i], "");
+		}
+	}
+
+	// The ammo's own display name, trimmed to fit a row. GetTag falls back to
+	// the class name when a mod has not set one, which is still more useful
+	// than the word "AMMO".
+	private static string ammoLabel(Weapon w)
+	{
+		Inventory a = hasMagazine(w) ? w.Ammo2 : w.Ammo1;
+		if (a == null) a = w.Ammo1;
+		if (a == null) return "AMMO";
+
+		string t = "" .. a.GetTag();
+		if (t.Length() == 0) t = "" .. a.GetClassName();
+		t = t.MakeUpper();
+		if (t.Length() > 10) t = t.Left(10);
+		return t;
+	}
+
 	private void buildSheet()
 	{
 		clearSheet();
@@ -650,31 +796,44 @@ class wr_Rig : EventHandler
 		mSheetTitle = level.AddBillboardPersistent(
 			(0, 0, 0), 3.5, 2.5, 0, 0,
 			LevelLocals.BBF_FIXED, LevelLocals.BB_TEXT, 0,
-			SHEET_ACCENT, LevelLocals.BBFL_NOHIT, 0, "PLASMA RIFLE");
+			SHEET_ACCENT, LevelLocals.BBFL_NOHIT, 0, "");
 
-		// FAKE ROWS. Label and value in one string per row -- one billboard,
-		// one colour, no second column to keep aligned. Real data replaces the
-		// strings and nothing about the layout has to move.
-		sheetRow("SLOT 6        CELLS",   SHEET_DIM);
-		sheetRow("SHOTS READY      38",   SHEET_HOT);
-		sheetRow("IN RESERVE      186",   SHEET_COOL);
-		sheetRow("RATE OF FIRE   8.6/s",  SHEET_TEXT);
-		sheetRow("DAMAGE       22 avg",   SHEET_MEAS);
-		sheetRow("ACCURACY        71%",   SHEET_MEAS);
-		sheetRow("TWO-HANDED",            SHEET_ACCENT);
+		// THE ROW POOL, allocated once for the life of the ring.
+		//
+		// SHEET_ROW_POOL, not "as many as this weapon needs": rows are
+		// restrung in place as the selector moves, so they have to exist
+		// before the first weapon is known, and a fixed pool means row N is
+		// the same billboard at the same height for every weapon. Nine,
+		// because layoutSheet fits ten elements and the tenth is the bar.
+		for (int i = 0; i < SHEET_ROW_POOL; ++i)
+		{
+			mSheetRows.Push(level.AddBillboardPersistent(
+				(0, 0, 0), 3.5, 2.5, 0, 0,
+				LevelLocals.BBF_FIXED, LevelLocals.BB_TEXT, 0,
+				SHEET_TEXT, LevelLocals.BBFL_NOHIT, 0, ""));
+		}
 
-		// Two gauges, for the same reason the cards have one: a number tells
-		// you the value and a bar tells you the value at a glance.
-		sheetBar(76, SHEET_HOT);
-		sheetBar(93, SHEET_COOL);
+		// The title and the rows are filled by buildSheetRows() against the
+		// weapon actually under the selector. Nothing is authored here.
+		mSheetShown = null;
+		mSheetValid = false;
+		mSheetUsed  = 0;
 	}
 
+	// Writes into the next pool slot rather than creating a billboard. The
+	// pool is sized once in buildSheet(); past its end a row is dropped rather
+	// than drawn off the plate, which is the failure layoutSheet's ten-slot
+	// budget exists to prevent.
 	private void sheetRow(string text, color col)
 	{
-		mSheetRows.Push(level.AddBillboardPersistent(
-			(0, 0, 0), 3.5, 2.5, 0, 0,
-			LevelLocals.BBF_FIXED, LevelLocals.BB_TEXT, 0,
-			col, LevelLocals.BBFL_NOHIT, 0, text));
+		if (mSheetUsed >= mSheetRows.Size()) return;
+
+		int id = mSheetRows[mSheetUsed];
+		++mSheetUsed;
+		if (id == 0) return;
+
+		level.SetBillboardText(id, text);
+		level.UpdateBillboard(id, 0, col);
 	}
 
 	private void sheetBar(int pct, color col)
@@ -3375,6 +3534,10 @@ class wr_Rig : EventHandler
 		// are placed in.
 		repaintFaces(pmo);
 
+		// Same reason, and the same frame: rows rebuilt here are positioned by
+		// layoutSheet below rather than sitting at the origin for a tic.
+		refreshSheet(pmo);
+
 		// RE-ASSERT THE FIST, EVERY TIC.
 		//
 		// This is not belt and braces. A_WeaponReady runs in the weapon's Ready
@@ -4534,6 +4697,14 @@ class wr_Rig : EventHandler
 	const SHEET_ROW_FRAC   = 0.055;  // one row's height
 	const SHEET_ROWS_TOP   = 0.21;   // where the first row starts, from the top
 	const SHEET_ROW_PITCH  = 1.45;   // row spacing as a multiple of row height
+
+	// How many row billboards the sheet allocates, once, up front.
+	//
+	// layoutSheet steps rows down on a fixed pitch and bars continue the same
+	// cursor, so the plate holds ten elements before the eleventh renders off
+	// its bottom edge. Nine rows plus one bar is exactly that budget. A tenth
+	// row would not error -- it would silently draw into the room.
+	const SHEET_ROW_POOL   = 9;
 
 	const SHEET_BG     = 0x0E1016;
 	const SHEET_BG2    = 0x1B2030;
