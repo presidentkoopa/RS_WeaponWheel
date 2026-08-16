@@ -63,6 +63,11 @@ OptionMenu wr_Options
 	Slider "  Hover glow",              "wr_glow",          0.0, 4.0, 0.1, 1
 	Slider "Corner rounding",           "wr_plate_radius", 0, 15, 1, 0
 	Slider "Plate border",              "wr_plate_border", 0, 15, 1, 0
+	// RS_Main's Basic tier -- the one nearly every fresh grant lands on --
+	// is white by design. On keeps rarity readable at a glance; off trades
+	// that for variety, falling back to the classic slot palette / a
+	// per-weapon hashed hue instead of asking RS_Main at all.
+	Option "Colour cards by rarity tier", "wr_tier_color", "OnOff"
 	// The other way to build a card: artwork painted into a texture in 2D pixel
 	// coordinates instead of assembled from billboards in map units. Both work.
 	// A raster, so it shows its pixels up close where the field payloads do not.

@@ -386,6 +386,19 @@ user float wr_sheet_scale = 1.0;
 // no weapon mod loaded at all.
 user bool  wr_sheet_stats = true;
 
+// Colour a card by RS_Main's tier (Cursed/Trash/Basic/Common/Uncommon/
+// Advanced/Designer/Prototype) when it has one, before falling back to the
+// classic nine-slot palette or a per-weapon hashed hue.
+//
+// ON is the informative choice -- rarity at a glance. Off trades that away
+// for variety: Basic, the third rung and the one nearly every fresh grant
+// lands on, is white BY DESIGN in RS_Main's own palette, so a ring built
+// mostly from starting gear is a ring built mostly from white cards,
+// correctly. If that reads as lifeless rather than as "everything you're
+// holding is unremarkable," this is the switch -- off skips the tier lookup
+// entirely and every card falls through to the palette below instead.
+user bool  wr_tier_color = true;
+
 
 // THE GUN'S OWN READOUT
 //

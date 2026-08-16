@@ -2435,14 +2435,25 @@ class wr_Rig : EventHandler
 	// their rarity tier? otherwise if they don't have one can't the
 	// slots themselves get fun colors?" -- both halves of that, in order.
 	//
-	// 1. TIER, if the weapon has one. Asked of RS_Main's own tier table
-	//    through RS_TierColorService rather than by naming RS_Weapon or
-	//    RS_TierPalette directly -- the same bridge wr_RigService opened
-	//    going the other way, and for the identical reason: a direct
-	//    class reference needs that class to exist AT COMPILE TIME, and
-	//    this mod is meant to stand alone without RS_Main installed.
-	//    Service.Find returns null and this falls through cleanly if
-	//    RS_Main is not loaded, or is an older build without the Service.
+	// 1. TIER, if the weapon has one AND wr_tier_color wants it. Asked of
+	//    RS_Main's own tier table through RS_TierColorService rather than
+	//    by naming RS_Weapon or RS_TierPalette directly -- the same bridge
+	//    wr_RigService opened going the other way, and for the identical
+	//    reason: a direct class reference needs that class to exist AT
+	//    COMPILE TIME, and this mod is meant to stand alone without
+	//    RS_Main installed. Service.Find returns null and this falls
+	//    through cleanly if RS_Main is not loaded, or is an older build
+	//    without the Service.
+	//
+	//    Off by default reason for wr_tier_color existing at all: RS_Main's
+	//    ladder runs Cursed/Trash/BASIC/Common/Uncommon/Advanced/Designer/
+	//    Prototype, and Basic -- third of eight, not an edge case, the tier
+	//    most drops and every fresh grant actually land on -- is white BY
+	//    DESIGN (RS_TierPalette.zs). A ring built mostly from starting gear
+	//    is a ring built mostly from white cards, correctly, which is not
+	//    the same as being wrong. wr_tier_color 0 skips the tier lookup
+	//    entirely so testing (or anyone who would rather have variety than
+	//    rarity-at-a-glance) gets the palette below instead.
 	//
 	// 2. THE CLASSIC SLOT PALETTE, for the nine weapons that actually
 	//    have one -- unchanged, this is why Rig Test was already
@@ -2457,7 +2468,7 @@ class wr_Rig : EventHandler
 	// -----------------------------------------------------------------
 	private static color cardColorFor(Weapon held, int slot)
 	{
-		if (held)
+		if (held && cv("wr_tier_color", 1.0) > 0.0)
 		{
 			// ServiceIterator.Find, NOT Service.Find -- Service's own Find
 			// takes class<Service>, an actual TYPE, so a string literal
