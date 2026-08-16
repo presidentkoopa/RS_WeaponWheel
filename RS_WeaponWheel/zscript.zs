@@ -284,7 +284,6 @@ class wr_Rig : EventHandler
 	int  mCentreId, mCentreIcon, mCentreLabel;
 	bool    mTouching;            // hand is physically inside a card
 	bool    mBtOn;                // we are the ones holding bullet time on
-	int     mBtSavedUnlimited;    // their bt_adrenaline_unlimited, to put back
 
 	//==========================================================================
 	// THE ONLY THING ANOTHER MOD IS INVITED TO ASK.
@@ -1176,8 +1175,16 @@ class wr_Rig : EventHandler
 	// present -- a hard type reference would make BulletTimeX a dependency of
 	// the wheel, which is exactly what a hook should not do.
 	//
-	// bt_activate is a TOGGLE, so opening the rig while bullet time is already
-	// running by your own hand will cancel it. Off by default for that reason.
+	// bt_activate is a TOGGLE and there is nothing to read back, so this cannot
+	// tell "start it" from "stop it" -- it can only flip whatever is currently
+	// true. Open the rig during a bullet time you started yourself and the flip
+	// CANCELS it: the world runs at full speed for the whole of your choice,
+	// which is the exact opposite of the point, and closing flips it back on.
+	//
+	// ON by default anyway, because the case it is wrong for needs you to have
+	// already been in bullet time when you opened the wheel, and the case it is
+	// right for is every other time. Scoping it properly means asking
+	// BulletTimeX what state it is in, and it publishes no way to ask.
 	private void bulletTime(bool on)
 	{
 		if (!cvBool("wr_bullettime", true)) return;
@@ -3202,11 +3209,17 @@ class wr_Rig : EventHandler
 		// reach was amplified it was solving a problem that no longer existed.
 		Vector3 dir = handDir(pmo, mPokeHand);
 
-		int hit;
+		int rayHit;
 		Vector2 uv;
 		// Finite range on purpose: unlimited means the ray leaves the room and
 		// can find another mod's billboard through a wall.
-		[hit, uv] = level.AimBillboard(org, dir, POINTER_RANGE);
+		[rayHit, uv] = level.AimBillboard(org, dir, POINTER_RANGE);
+
+		// KEPT SEPARATELY from the selection below, and that separation is the
+		// whole fix. What the RAY hit and what is SELECTED are different
+		// questions once the stick and the hand can also answer -- see the beam
+		// clamp at the end of this function.
+		int hit = rayHit;
 
 		// STICK SELECTION, for anyone who would rather not aim.
 		//
@@ -3249,12 +3262,22 @@ class wr_Rig : EventHandler
 		// Without them you are aiming something invisible: the ray leaves your
 		// hand at an angle you cannot see, and the first feedback would be a card
 		// lighting up somewhere you were not looking.
-		double reach = POINTER_RANGE;
-		if (hit != 0)
+		//
+		// MEASURED AGAINST rayHit, NOT against what won the selection. This used
+		// to pass `hit`, and distanceToHit works by walking the ray until it
+		// stops finding that exact card -- so handed a card the stick or the
+		// hand chose, one that the ray never crossed, the search matched nothing,
+		// the interval never closed and it returned POINTER_RANGE. A stick push
+		// or a reach therefore fired the laser out to its full 200 units into the
+		// room, at the exact moment a card off to one side lit up. The beam is
+		// physical: it stops where it actually meets something, and it is allowed
+		// to meet nothing while another input does the choosing.
+		double reach;
+		if (rayHit != 0)
 		{
 			// Stop the beam at the card it found, so it reads as touching rather
 			// than passing through.
-			reach = distanceToHit(org, dir, hit);
+			reach = distanceToHit(org, dir, rayHit);
 		}
 		else
 		{
@@ -3267,7 +3290,7 @@ class wr_Rig : EventHandler
 		// the wall behind -- which reads as the laser ignoring the thing it is
 		// selecting. Republished every tic; a stale value would clamp the
 		// player's laser forever.
-		level.SetVRLaserRange(hit != 0 ? reach : 0);
+		level.SetVRLaserRange(rayHit != 0 ? reach : 0);
 
 		decor(pmo, org, dir, reach, hit != 0);
 		cardLight(pmo);
