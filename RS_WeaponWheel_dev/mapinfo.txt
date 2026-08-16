@@ -1,8 +1,26 @@
-// The test pawn, registered only when this dev package is loaded.
+// The test pawns, registered only when this dev package is loaded.
 //
 // The shipping mapinfo does not add a player class at all -- see the note in
 // zscript.zs here for why that had to move out.
+//
+// One AddPlayerClasses line per class, not a comma list in one line -- that
+// is the documented ZDoom MAPINFO GameInfo syntax and every existing example
+// in this project follows it; a comma-separated value is not how this
+// property is parsed.
+//
+// The nine DEV_ pawns need RS_Main loaded to have anything to grant -- see
+// zscript.zs's header comment on WR_DevKit for why that is a soft runtime
+// dependency and not a hard one. WR_TestPlayer alone needs nothing.
 GameInfo
 {
 	AddPlayerClasses = "WR_TestPlayer"
+	AddPlayerClasses = "DEV_Dual_Pistol"
+	AddPlayerClasses = "DEV_Dual_Revolver"
+	AddPlayerClasses = "DEV_Dual_Rifle"
+	AddPlayerClasses = "DEV_Dual_SMG"
+	AddPlayerClasses = "DEV_Dual_Shotgun"
+	AddPlayerClasses = "DEV_Dual_SSG"
+	AddPlayerClasses = "DEV_Dual_Chaingun"
+	AddPlayerClasses = "DEV_VanillaPlus"
+	AddPlayerClasses = "DEV_MeatGrinder"
 }
