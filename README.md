@@ -57,7 +57,7 @@ once by feel and you can stop looking at it.
 unfold outward. Move to one and take it as normal.
 
 **Empty guns look empty.** A weapon with nothing left rests a darker colour, its
-pips are out, and confirming it makes a different noise. You find out at your
+gauge is empty, and confirming it makes a different noise. You find out at your
 wrist instead of at the trigger.
 
 **Picking the gun your other hand is holding does something sensible.** If your
@@ -84,7 +84,7 @@ shown, and two different ways of drawing a card entirely:
 - **Sharp plates** — perfectly crisp at any distance, with a glow on the one you
   are pointing at.
 - **Painted card faces** — the weapon drawn large enough to run off the edges of
-  its card, ammo as individual pips, and scanlines over the whole thing. Looks
+  its card, ammo as a pair of bars, and scanlines over the whole thing. Looks
   like a device instead of a menu.
 
 Try both. They are genuinely different and neither is the "right" one.

@@ -1,0 +1,8 @@
+// The test pawn, registered only when this dev package is loaded.
+//
+// The shipping mapinfo does not add a player class at all -- see the note in
+// zscript.zs here for why that had to move out.
+GameInfo
+{
+	AddPlayerClasses = "WR_TestPlayer"
+}

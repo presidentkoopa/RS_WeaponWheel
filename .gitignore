@@ -1,7 +1,12 @@
-# Build output. Rebuilt from this folder by zipdir -- see README.md.
-RS_WeaponWheel.pk3
+# Build output. Rebuilt from the package folders by build.ps1.
 *.pk3
 *.pk3.temp
+
+# A pk3 is a zip, and a zip written INSIDE a package folder gets packed into
+# the next build of that package -- a stale copy of the mod, inside the mod.
+# build.ps1 writes to the repo root for exactly this reason; this makes the
+# other outcome impossible to commit as well.
+*.zip
 
 # GZDoom leaves these next to a loaded pk3.
 *.bak

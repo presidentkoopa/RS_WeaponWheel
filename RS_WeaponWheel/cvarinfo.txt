@@ -25,9 +25,13 @@ user float wr_tilt     = 12.0;
 // free. 7 units is about 20cm.
 user float wr_touch    = 7.0;
 
-// Open the rig automatically when a level starts. On while iterating; turn it
-// off once it is bound to something you actually want to press.
-user bool  wr_autoopen = true;
+// Open the rig automatically when a level starts.
+//
+// OFF. This was on for the whole of development -- testing a change was one
+// launch instead of a launch and a keypress -- and shipping it that way means
+// a ring in your face at the start of every map you load, before you have
+// bound anything or asked for it. Turn it on while iterating.
+user bool  wr_autoopen = false;
 
 // How much wrist roll spins the fan. 0 ignores it, 1 follows it exactly.
 user float wr_roll     = 0.0;

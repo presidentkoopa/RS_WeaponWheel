@@ -740,31 +740,39 @@ class wr_Rig : EventHandler
 	override void PlayerDied(PlayerEvent e)  { closeRig(); level.SuppressVRInput(false); }
 
 	// Open on level start while iterating, so testing a change is one launch
-	// instead of a launch and a keypress.
+	// instead of a launch and a keypress. Off for everyone else.
 	//
 	// Armed here, fired from WorldTick rather than opened here directly:
 	// WorldLoaded can land before the pawn counts as PST_LIVE, and openRig bails
 	// on that -- which looks exactly like the rig being broken.
 	override void WorldLoaded(WorldEvent e)
 	{
-		// Order matters. migrateConfig WRITES user cvars, and a write that fails
-		// takes the rest of this function with it -- so the auto-open flag was
-		// never reached and the rig only ever opened by hand. Arm first, then do
-		// anything that can go wrong.
-		mWantAutoOpen = true;
-		mWantAutoOpen = cvBool("wr_autoopen", true);
-
+		// Cleared BEFORE migrateConfig and read AFTER it, and the order is
+		// load-bearing both ways. migrateConfig WRITES wr_autoopen in gen 20,
+		// so reading first would auto-open once more on the very load that
+		// turned it off. And a cvar write that fails takes the rest of this
+		// function with it -- which is why the clear comes first, so a
+		// migration that dies leaves the flag at "do nothing" rather than at
+		// whatever it happened to hold.
+		mWantAutoOpen = false;
 		migrateConfig();
+		mWantAutoOpen = cvBool("wr_autoopen", false);
 	}
 
 	// Geometry generation. Bump this whenever the numbers below change and every
 	// existing config picks them up once, automatically.
-	const CFG_VERSION = 19;
+	const CFG_VERSION = 20;
 
 	private void migrateConfig()
 	{
 		let stamp = CVar.GetCVar("wr_cfgver", players[consoleplayer]);
 		if (stamp == null || stamp.GetInt() >= CFG_VERSION) return;
+
+		// Gen 20: auto-open OFF. It was on for all of development and the
+		// archived value in an existing config outlives any change to the
+		// default, so anyone who ever loaded this before now would keep
+		// getting a ring in their face at every map start otherwise.
+		setCv("wr_autoopen", 0);
 
 		// Gen 19 briefly migrated wr_card_* (the in-world stat card's own
 		// size/gap cvars) -- the card and everything that read them are
@@ -4286,34 +4294,9 @@ class wr_Rig : EventHandler
 	const ARRIVE_ROLL = 26.0;
 }
 
-// Test loadout -- everything, immediately, so the rig can be looked at with a
-// full arc instead of a fist and a pistol.
-//
-// Pick "Rig Test" in Player Setup. Deliberately a separate class rather than
-// giving weapons on level start: this leaves a normal game normal, and it
-// survives map changes and saves without any code watching for them.
-class WR_TestPlayer : DoomPlayer
-{
-	Default
-	{
-		Player.DisplayName "Rig Test";
-
-		Player.StartItem "Fist";
-		Player.StartItem "Chainsaw";
-		Player.StartItem "Pistol";
-		Player.StartItem "Shotgun";
-		Player.StartItem "SuperShotgun";
-		Player.StartItem "Chaingun";
-		Player.StartItem "RocketLauncher";
-		Player.StartItem "PlasmaRifle";
-		Player.StartItem "BFG9000";
-
-		Player.StartItem "Clip",      400;
-		Player.StartItem "Shell",     100;
-		Player.StartItem "RocketAmmo", 100;
-		Player.StartItem "Cell",      600;
-	}
-}
+// WR_TestPlayer lived here and now lives in RS_WeaponWheel_dev, because
+// AddPlayerClasses is global: registering a debug pawn put "Rig Test" in the
+// New Game class list of every game this mod was loaded with.
 
 
 // Carrier for the hovered card's light.

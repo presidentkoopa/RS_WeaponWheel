@@ -1,5 +1,8 @@
+// No AddPlayerClasses here. The "Rig Test" pawn is a debug loadout and
+// AddPlayerClasses is global and permanent -- it put that class in the New
+// Game list of every game this mod was loaded with. It lives in
+// RS_WeaponWheel_dev.pk3 now; load that alongside while iterating.
 GameInfo
 {
 	AddEventHandlers = "wr_Rig"
-	AddPlayerClasses = "WR_TestPlayer"
 }

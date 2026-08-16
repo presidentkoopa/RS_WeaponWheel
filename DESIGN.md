@@ -97,11 +97,22 @@ The fork documents these in its own `FORK_CHANGES.md`, sections 22 to 26.
 ## Building
 
 ```bash
-zipdir -f RS_WeaponWheel.pk3 RS_WeaponWheel
+.\build.ps1
 ```
 
-`zipdir` ships with the GZDoom source tree and lands in
-`build/tools/zipdir/<config>/`.
+Writes `RS_WeaponWheel.pk3` to the repo root. `-Dev` also builds
+`RS_WeaponWheel_dev.pk3`; `-Deploy <dir>` copies what it built.
+
+No `zipdir`, and no GZDoom source tree — a pk3 is a zip with the package
+folder's contents at its root, which the script writes directly. It refuses to
+build if it finds an archive **inside** a package folder, because that archive
+is content: a `.zip` left in `RS_WeaponWheel/` gets packed into the next
+`RS_WeaponWheel.pk3` as a stale copy of the whole mod.
+
+**The dev package is separate on purpose.** `AddPlayerClasses` is global and
+permanent, so the "Rig Test" pawn — nine weapons and full ammo, for looking at
+a populated ring — used to appear in the New Game class list of every game the
+mod was loaded with. It lives in `RS_WeaponWheel_dev` now and ships to nobody.
 
 Adding a new engine native means rebuilding **both** engine targets — the
 executable *and* the pk3 target carrying the ZScript declarations. Building only
