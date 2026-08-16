@@ -290,6 +290,14 @@ user int   wr_readout = 0;
 // game, not decided per loadout.
 user int wr_subcards_max = 10;
 
+// How many consecutive tics the laser has to spend on a REAL other card --
+// not empty space, which was already free -- before an open fan actually
+// folds. Picking between several cards packed into a fan is a finer aim
+// than picking between the ring's own cards, so a wobble that would never
+// have closed the ring itself used to close a fan on the very first tic it
+// strayed. 0 goes back to that instant behaviour.
+user int wr_subcards_grace = 6;
+
 
 // REAL MODELS ON THE CARDS
 //

@@ -310,6 +310,8 @@ class wr_Rig : EventHandler
 	Array<int>    mSubGauges;
 	int mExpanded;                // index into mIds, or -1
 	int mDwellTics;               // how long the hover has sat on one card
+	int mCollapseGrace;           // consecutive tics on a genuine off-fan
+	                               // hit -- see updateHover's own comment
 
 	bool  mWantAutoOpen;
 	Vector3 mAnchor;              // the ring centre, out in front of the hand
@@ -703,7 +705,7 @@ class wr_Rig : EventHandler
 		mSheetUsed = 0;
 
 		string title = w ? ("" .. w.GetTag()) : "EMPTY";
-		color  tint  = w ? cardColorFor(w, w.default.SlotNumber) : color(SHEET_DIM);
+		color  tint  = w ? tierColorOf(w) : color(SHEET_DIM);
 
 		if (mSheetTitle != 0)
 		{
@@ -746,7 +748,7 @@ class wr_Rig : EventHandler
 
 		if (isRS)
 			sheetRow(hands.Length() ? (tierWord(tier) .. "  " .. hands) : tierWord(tier),
-			         tierColorOf(w, tier));
+			         tierColorOf(w));
 		else if (slotOf(w) >= 1 && slotOf(w) <= 9)
 			sheetRow(hands.Length() ? String.Format("SLOT %d  %s", slotOf(w), hands)
 			                        : String.Format("SLOT %d", slotOf(w)), SHEET_DIM);
@@ -936,11 +938,35 @@ class wr_Rig : EventHandler
 	}
 
 	// The tier's own colour, from RS_Main's single palette, so the sheet never
-	// starts a second table that can drift from it. cardColorFor already asks
-	// exactly this and falls through cleanly when RS_Main is absent.
-	private static color tierColorOf(Weapon w, int t)
+	// starts a second table that can drift from it.
+	//
+	// Tier FIRST, ALWAYS -- wr_tier_color does not apply to the sheet. The
+	// ring and the sheet answer different questions now: wr_tier_color
+	// exists because a ring built mostly from Basic-tier (white, by design)
+	// starting gear reads as lifeless, and turning it off trades rarity-at-
+	// a-glance for variety on purpose. The owner's own ask, in order: "can
+	// we have colored cards all the time and the data card still shows
+	// weapon rarity tier thanks to the color of the weapon name" -- the
+	// sheet is the ONE place that promise still has to hold even when the
+	// ring has stopped making it, so this cannot ask cardColorFor, which
+	// would inherit the ring's opt-out. Same fallback (slot palette, then a
+	// hashed hue) once tier is off the table, because a weapon with no tier
+	// still deserves a real colour and not grey.
+	//
+	// The int parameter this used to take was never read -- callers already
+	// have the tier as an int because reading it is how they know to call
+	// this at all, but the COLOUR was always re-derived from the weapon,
+	// never from that number. Dropped rather than left dead.
+	private static color tierColorOf(Weapon w)
 	{
-		return cardColorFor(w, slotOf(w));
+		bool found; color tier;
+		[found, tier] = rsTierLookup(w);
+		if (found) return tier;
+
+		int slot = slotOf(w);
+		if (slot >= 1 && slot <= 9) return slotColor(slot);
+
+		return hueOf(classNameHash(w), 16);
 	}
 
 	private static int slotOf(Weapon w)
@@ -1800,6 +1826,7 @@ class wr_Rig : EventHandler
 		mSubLabelH.Clear();
 		mSubTypes.Clear();
 		mExpanded = -1;
+		mCollapseGrace = 0;
 	}
 
 	// True when this billboard belongs to the open fan or to the card that
@@ -2470,23 +2497,39 @@ class wr_Rig : EventHandler
 	{
 		if (held && cv("wr_tier_color", 1.0) > 0.0)
 		{
-			// ServiceIterator.Find, NOT Service.Find -- Service's own Find
-			// takes class<Service>, an actual TYPE, so a string literal
-			// there still makes the compiler resolve RS_TierColorService
-			// at compile time and fail to build without RS_Main loaded.
-			// ServiceIterator.Find(String) is the real runtime lookup.
-			let svc = ServiceIterator.Find("RS_TierColorService").Next();
-			if (svc)
-			{
-				int packed = svc.GetInt("TierColorOf", "", 0, 0, held);
-				if (packed >= 0)
-					return color(255, (packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF);
-			}
+			bool found; color tier;
+			[found, tier] = rsTierLookup(held);
+			if (found) return tier;
 		}
 
 		if (slot >= 1 && slot <= 9) return slotColor(slot);
 
 		return hueOf(classNameHash(held), 16);
+	}
+
+	// THE RAW RS_MAIN LOOKUP, pulled out of cardColorFor so the sheet's own
+	// tierColorOf() (below slotOf(), near line 943) can ask for it
+	// unconditionally. That function used to just forward to cardColorFor,
+	// which meant the TIER stat row lost its colour the instant wr_tier_color
+	// went off -- the same bug this session already found and fixed for the
+	// sheet's title, one call site over.
+	private static bool, color rsTierLookup(Weapon held)
+	{
+		color none;
+		if (!held) return false, none;
+
+		// ServiceIterator.Find, NOT Service.Find -- Service's own Find
+		// takes class<Service>, an actual TYPE, so a string literal there
+		// still makes the compiler resolve RS_TierColorService at compile
+		// time and fail to build without RS_Main loaded. ServiceIterator.
+		// Find(String) is the real runtime lookup.
+		let svc = ServiceIterator.Find("RS_TierColorService").Next();
+		if (!svc) return false, none;
+
+		int packed = svc.GetInt("TierColorOf", "", 0, 0, held);
+		if (packed < 0) return false, none;
+
+		return true, color(255, (packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF);
 	}
 
 	// A simple mixing hash over the class name's bytes -- this owes
@@ -4778,6 +4821,34 @@ class wr_Rig : EventHandler
 
 	private void updateHover(int hit)
 	{
+		// SUBCARDS GET A GRACE PERIOD MAIN CARDS DO NOT NEED.
+		//
+		// A fan packs several cards into whatever room a busy ring can spare,
+		// so landing exactly on one is a much finer aim than picking between
+		// nine cards a hand's width apart on the ring proper. "Pointing at
+		// nothing" was already free -- the block below never treated hit==0
+		// as leaving -- but the ring's OTHER cards are not empty space, and a
+		// laser that wobbles a millimetre past the fan's edge used to collapse
+		// it on the very first tic, which punished exactly the imprecision a
+		// fan is most likely to suffer from.
+		//
+		// Runs every tic regardless of which branch below fires, because a
+		// wobble that settles into a genuine dwell on the wrong card (hit ==
+		// mHovered, the early-return branch) has to keep counting too, not
+		// just the tic the laser first arrived there.
+		if (mExpanded >= 0 && hit != 0 && !belongsToExpansion(hit))
+		{
+			if (++mCollapseGrace >= int(cv("wr_subcards_grace", 6.0)))
+			{
+				collapseSlot();
+				mCollapseGrace = 0;
+			}
+		}
+		else
+		{
+			mCollapseGrace = 0;
+		}
+
 		// Dwell, not instant. Sweeping across a row on the way somewhere else
 		// would otherwise open and shut four fans in a third of a second.
 		if (hit == mHovered)
@@ -4820,9 +4891,9 @@ class wr_Rig : EventHandler
 		// its fan there is empty space, so travelling from one to the other put
 		// hit at 0 for a few tics -- and treating 0 as "left the fan" collapsed it
 		// before you ever arrived. Only landing on some OTHER card counts as
-		// leaving. Getting bored is handled by the lock timer, which is already
-		// the thing that closes a rig you have stopped using.
-		if (mExpanded >= 0 && hit != 0 && !belongsToExpansion(hit)) collapseSlot();
+		// leaving, and even that is graced now -- see the top of this function.
+		// Getting bored is handled by the lock timer, which is already the
+		// thing that closes a rig you have stopped using.
 		mDwellTics = 0;
 
 		// Recolour the PLATE, not the thing that was hit -- the hit quad is
