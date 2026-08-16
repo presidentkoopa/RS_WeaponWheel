@@ -165,6 +165,12 @@ class wr_Rig : EventHandler
 	Array<int>   mAmmos;          // the count under the name
 	Array<Class<Weapon> > mTypes;
 	Array<int>   mCardSlots;      // which slot each card stands for
+	// Decided ONCE, in gatherWeapons(), from the weapon count against
+	// wr_subcards_max -- not re-read as a live cvar elsewhere, because
+	// whether THIS build of the ring collapsed is a fact about the cards
+	// already spawned, not a setting that can change out from under them
+	// mid-ring. expandSlot()'s dwell trigger reads this, not the cvar.
+	bool         mFansEnabled;
 	Array<int>   mCardColor;      // resolved once at build -- see cardColorFor()
 
 	// The card's colour when nothing is happening to it. Not a constant, because
@@ -188,6 +194,8 @@ class wr_Rig : EventHandler
 	Array<int> mShadows;          // one dark quad behind each card
 	Array<int> mSlotNums;         // the key you would press, on the card it maps to
 	Array<int> mMarks;            // "you already have this", per card
+	Array<int> mStackBadges;      // "+N", when this card is hiding others behind it
+	Array<int> mSlotCount;        // how many weapons TOTAL share this card's slot
 	Actor      mLight;            // one dynamic light, on the hovered card
 	Array<Actor> mModels;         // a real weapon model per card, when enabled
 
@@ -563,7 +571,7 @@ class wr_Rig : EventHandler
 			if (overPool)
 			{
 				Console.Printf("\c[Gold]WRISTRIG\c- %d cards over the pool of %d, "
-					"whole ring composed -- wr_subcards 1 keeps it under",
+					"whole ring composed -- lower wr_subcards_max to keep it under",
 					mIds.Size(), FACE_POOL);
 			}
 		}
@@ -1178,6 +1186,10 @@ class wr_Rig : EventHandler
 		{
 			if (mMarks[i]) level.RemoveBillboard(mMarks[i]);
 		}
+		for (int i = 0; i < mStackBadges.Size(); ++i)
+		{
+			if (mStackBadges[i]) level.RemoveBillboard(mStackBadges[i]);
+		}
 		for (int i = 0; i < mShadows.Size(); ++i)
 		{
 			if (mShadows[i]) level.RemoveBillboard(mShadows[i]);
@@ -1195,6 +1207,7 @@ class wr_Rig : EventHandler
 			if (mGroups[i]) level.RemoveBillboardGroup(mGroups[i]);
 		}
 		mMarks.Clear();
+		mStackBadges.Clear();
 		mShadows.Clear();
 		mSlotNums.Clear();
 		mGroups.Clear();
@@ -1219,6 +1232,7 @@ class wr_Rig : EventHandler
 		mFaces.Clear();
 		mCardX.Clear(); mCardY.Clear(); mCardZ.Clear();
 		mMarks.Clear();
+		mStackBadges.Clear();
 		mShadows.Clear();
 		mSlotNums.Clear();
 		mBaseColor.Clear();
@@ -1229,6 +1243,7 @@ class wr_Rig : EventHandler
 		mTypes.Clear();
 		mCardSlots.Clear();
 		mCardColor.Clear();
+		mSlotCount.Clear();
 		mTouching  = false;
 		mOpen      = false;
 		mOpenTics  = 0;
@@ -1385,14 +1400,43 @@ class wr_Rig : EventHandler
 	//
 	// The card's face is the slot's first admissible weapon -- what you would
 	// get by taking the slot outright. The rest of that slot lives behind it.
+	// Total admissible weapons across every slot -- the number gatherWeapons()
+	// needs BEFORE it can decide flat or collapsed. Built by summing
+	// slotWeapons() rather than re-filtering inventory a third time: that
+	// function is already the one place the admissibility test (owned, not
+	// forbidden to this hand) lives, and this and the card-building loop
+	// below both defer to it so neither can disagree with the other about
+	// how many weapons there are.
+	private int countAdmissible(PlayerPawn pmo)
+	{
+		int total = 0;
+		for (int pass = 0; pass < 10; ++pass)
+		{
+			int slot = (pass == 9) ? 0 : pass + 1;
+			Array<Class<Weapon> > variants;
+			slotWeapons(pmo, slot, variants);
+			total += variants.Size();
+		}
+		return total;
+	}
+
 	private void gatherWeapons(PlayerPawn pmo)
 	{
 		mTypes.Clear();
 		mCardSlots.Clear();
 		mCardColor.Clear();
+		mSlotCount.Clear();
 
-		let slots = players[consoleplayer].weapons;
-		if (slots == null) return;
+		// FLAT WHILE IT CAN AFFORD TO, COLLAPSED ONCE IT HAS TO.
+		//
+		// This used to be wr_subcards, a plain on/off switch for the whole
+		// game: either every slot always fanned, or every weapon always got
+		// its own card. Counting first and comparing to wr_subcards_max makes
+		// it a per-loadout decision instead -- nine weapons stays flat and
+		// readable, fifty collapses to the same nine learnable bearings it
+		// always would have, and nothing has to be reconfigured crossing that
+		// line because the ring crosses it by itself.
+		mFansEnabled = countAdmissible(pmo) > max(0, cv("wr_subcards_max", 10.0));
 
 		// Every slot Doom has, not the eight a 3x3 happened to hold. Slot 0 is
 		// walked last because that is where the engine's own cycling puts it.
@@ -1400,19 +1444,31 @@ class wr_Rig : EventHandler
 		{
 			int slot = (pass == 9) ? 0 : pass + 1;
 
-			int n = slots.SlotSize(slot);
+			Array<Class<Weapon> > variants;
+			slotWeapons(pmo, slot, variants);
+			if (variants.Size() == 0) continue;
 
-			for (int j = 0; j < n; ++j)
+			// FANS, OR EVERYTHING ON THE RING -- decided once, above, for the
+			// whole ring, so two slots can never disagree about which mode
+			// the ring is in.
+			//
+			// Collapsed: one card, this slot's first admissible weapon, and
+			// the rest fan out of it on dwell -- the ring stays one card per
+			// slot, which is what makes its bearings learnable by feel, slot 4
+			// in the same direction whether you own one weapon there or five.
+			//
+			// Flat: every weapon in the slot gets its own card and the ring
+			// grows to fit. It can afford to -- the radius already scales
+			// with the count so the chord between neighbours stays above a
+			// card width. What it gives up is the fixed bearing: picking up a
+			// second plasma rifle moves everything after it round the ring.
+			int show = mFansEnabled ? 1 : variants.Size();
+
+			for (int k = 0; k < show; ++k)
 			{
-				Class<Weapon> type = slots.GetWeapon(slot, j);
-				if (type == null) continue;
-
+				Class<Weapon> type = variants[k];
 				let held = Weapon(pmo.FindInventory(type));
 				if (held == null) continue;
-
-				// A weapon the rig hand is forbidden to hold would be a card
-				// that does nothing when touched, so it does not get one.
-				if (held.bNoHandSwitch && held.bOffhandWeapon != (mRigHand == 1)) continue;
 
 				mTypes.Push(type);
 				mCardSlots.Push(slot);
@@ -1425,24 +1481,15 @@ class wr_Rig : EventHandler
 				// every tic.
 				mCardColor.Push(cardColorFor(held, slot));
 
-				// FANS, OR EVERYTHING ON THE RING.
-				//
-				// With fans on, a slot puts its FIRST admissible weapon on the
-				// ring and the rest unfold out of it on dwell. That keeps the
-				// ring at one card per slot, which is what makes its bearings
-				// learnable by feel -- slot 4 is in the same direction whether
-				// you own one weapon in it or five.
-				//
-				// With fans off, every weapon gets its own card and the ring
-				// simply grows. It can afford to: the radius already scales with
-				// the count so the chord between neighbours stays above a card
-				// width, and nothing about the layout assumes eight. What you
-				// give up is the fixed bearing -- picking up a second plasma
-				// rifle now moves everything after it round the ring.
-				//
-				// Worth having both. One is learnable, the other is one reach
-				// instead of a dwell and a reach.
-				if (cv("wr_subcards", 1.0) > 0.0) break;
+				// PARALLEL TO mTypes, ONE PUSH PER CARD -- not one per slot.
+				// A flat ring puts several cards on one slot, and each of
+				// them needs its own entry here or every array after this
+				// point in the file drifts out of index with mTypes. The
+				// value itself only matters on a collapsed card (the stack
+				// badge below reads it); on a flat one it is always
+				// variants.Size() == 1, since nothing is left behind a card
+				// that already has its own.
+				mSlotCount.Push(variants.Size());
 			}
 		}
 	}
@@ -2717,13 +2764,13 @@ class wr_Rig : EventHandler
 		// That is fine as failure handling and wrong as a picture: painted and
 		// composed cards do not look like variants of one card, they look like
 		// two different menus, and the ring's whole job is to be read at a
-		// glance. It only ever happened with wr_subcards off, where the ring
-		// grows a card per weapon instead of per slot, so the sets that tripped
-		// it were the crowded ones that could least afford the noise.
+		// glance. It only ever happened on a FLAT ring, which grows a card per
+		// weapon instead of per slot, so the sets that tripped it were the
+		// crowded ones that could least afford the noise.
 		//
 		// One uniform ring of composed cards beats twelve good ones and a
-		// remainder. Turning wr_subcards back on is also the way out, since a
-		// ring of slots cannot exceed nine.
+		// remainder. Lowering wr_subcards_max is also the way out, since a
+		// collapsed ring of slots cannot exceed nine.
 		bool canvasRing = cv("wr_canvas", 0.0) > 0.0 && mTypes.Size() <= FACE_POOL;
 
 		for (int i = 0; i < mTypes.Size(); ++i)
@@ -2954,6 +3001,35 @@ class wr_Rig : EventHandler
 			}
 			mSlotNums.Push(nid);
 
+			// THE STACK BADGE -- "this card is hiding others."
+			//
+			// Before wr_subcards_max could pick flat OR collapsed per loadout,
+			// a card's shape said everything: collapsed meant every card had
+			// a fan behind it and flat meant none did, and either was true of
+			// the whole ring at a glance. Now the two coexist card by card --
+			// nothing on a collapsed card's FACE otherwise says whether it is
+			// a slot of one weapon or five, and dwelling on the wrong
+			// assumption either way costs a beat you should not have had to
+			// spend finding out.
+			//
+			// BB_TEXT, not BB_DIGITS, because the count alone reads as a
+			// second slot number in the same corner family -- "+3" can only
+			// mean one thing. Only mFansEnabled cards carry siblings to hide
+			// at all; a flat card's own mSlotCount is always 1 (nothing is
+			// left behind a card that already has its own), so the >1 test
+			// below is what actually gates this, mFansEnabled is what makes
+			// that test possible to fail safely.
+			int bid = 0;
+			if (mFansEnabled && i < mSlotCount.Size() && mSlotCount[i] > 1)
+			{
+				bid = level.AddBillboardPersistent(
+					(0, 0, 0), 3.5, 2.5, 0, 0,
+					LevelLocals.BBF_FIXED, LevelLocals.BB_TEXT, 0,
+					COLOR_STACK, LevelLocals.BBFL_NOHIT, 0,
+					String.Format("+%d", mSlotCount[i] - 1));
+			}
+			mStackBadges.Push(bid);
+
 			// The same number as a proportion, which is the reading you actually
 			// take at a glance. "148" needs parsing; a bar that is nearly gone
 			// does not. BB_BAR's data is a fill PERCENT, 0..100, and it grows
@@ -2993,6 +3069,7 @@ class wr_Rig : EventHandler
 			if (mid != 0) level.SetBillboardGroup(mid, grp);
 			if (shad != 0) level.SetBillboardGroup(shad, grp);
 			if (nid != 0) level.SetBillboardGroup(nid, grp);
+			if (bid != 0) level.SetBillboardGroup(bid, grp);
 			if (aid != 0) level.SetBillboardGroup(aid, grp);
 			mCardX.Push(0); mCardY.Push(0); mCardZ.Push(0);
 			mGroups.Push(grp);
@@ -3383,6 +3460,23 @@ class wr_Rig : EventHandler
 				level.RollBillboard(mSlotNums[i], roll);
 			}
 
+			// Bottom-right -- the one corner slot number (bottom-left) and
+			// held marker (top-right) leave free. Sized a shade smaller than
+			// the slot number: this is confirming something the fan itself
+			// will show in a moment, not a fact you need at the same weight
+			// as the digit that IS the card's bearing.
+			if (i < mStackBadges.Size() && mStackBadges[i] != 0)
+			{
+				level.MoveBillboard(mStackBadges[i],
+					pos + lift * 1.5
+					    + viewRight * (panelW * 0.40 * pulse)
+					    - (0, 0, panelH * 0.34 * pulse));
+				level.ResizeBillboard(mStackBadges[i], panelW * 0.24 * pulse,
+				                                       panelH * 0.13 * pulse);
+				level.OrientBillboard(mStackBadges[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+				level.RollBillboard(mStackBadges[i], roll);
+			}
+
 			if (i < mSlotNums.Size()) fade(mSlotNums[i], cardAlpha);
 			if (i < mPlates.Size())  fade(mPlates[i], cardAlpha);
 			if (i < mFaces.Size())   fade(mFaces[i], cardAlpha);
@@ -3392,6 +3486,7 @@ class wr_Rig : EventHandler
 			if (i < mLabels.Size())  fade(mLabels[i], cardAlpha);
 			if (i < mAmmos.Size())   fade(mAmmos[i], cardAlpha);
 			if (i < mMarks.Size())   fade(mMarks[i], cardAlpha);
+			if (i < mStackBadges.Size()) fade(mStackBadges[i], cardAlpha);
 
 			// The model floats a little in FRONT of its plate, so the card backs
 			// it rather than intersecting it, and it takes the same pulse and
@@ -4456,8 +4551,16 @@ class wr_Rig : EventHandler
 
 			// Nothing to unfold when every weapon already has its own card --
 			// the fan would be a duplicate of cards already on the ring.
+			//
+			// mFansEnabled, not a live cv() read: whether fans are enabled is
+			// a fact about the cards THIS ring was built with, decided once
+			// in gatherWeapons(). Re-reading wr_subcards_max here would let a
+			// slider drag mid-hover flip a ring that already committed to
+			// being flat into trying to expand a card that has nowhere to
+			// expand FROM -- every one of its siblings is already its own
+			// card on the ring, not folded behind this one.
 			if (mDwellTics == DWELL_TO_EXPAND && !belongsToExpansion(hit)
-			    && cv("wr_subcards", 1.0) > 0.0)
+			    && mFansEnabled)
 			{
 				let pmo = players[consoleplayer].mo;
 				if (pmo != null)
@@ -4767,6 +4870,12 @@ class wr_Rig : EventHandler
 	// Dim on purpose: a reference you glance at, never a thing competing with
 	// the weapon name for attention.
 	const COLOR_SLOTNUM = 0x5F6874;
+
+	// The stack badge -- "+N", on a collapsed card hiding others behind it.
+	// Warmer than COLOR_SLOTNUM on purpose: the slot number is always there
+	// and asks for nothing, the badge is telling you dwelling here does
+	// something, which earns a little more presence than a bare reference.
+	const COLOR_STACK = 0xC98A3A;
 
 	// THE STATS PANEL.
 	//

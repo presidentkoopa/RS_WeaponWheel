@@ -269,14 +269,26 @@ user bool  wr_marker = true;
 // Pick by which reads better against the room, not which is more correct.
 user int   wr_readout = 0;
 
-// On: a slot shows its first weapon and the rest fan out of it on dwell. The
-// ring stays one card per slot, so slot 4 is in the same direction whether you
-// own one weapon in it or five -- which is what makes bearings learnable.
+// How many weapons the ring will show INDIVIDUALLY before it gives up and
+// collapses to one card per SLOT with the rest folded behind it.
 //
-// Off: every weapon gets its own card and the ring grows. One reach instead of
-// a dwell and a reach, at the cost of the fixed bearing: picking up a second
-// plasma rifle moves everything after it round the ring.
-user bool wr_subcards = true;
+// BELOW the threshold: every weapon gets its own card and the ring grows to
+// fit. One reach instead of a dwell and a reach, at the cost of the fixed
+// bearing -- picking up a second plasma rifle moves everything after it round
+// the ring.
+//
+// AT OR PAST it: one card per slot, and slot 4 is in the same direction
+// whether you own one weapon in it or five -- which is what makes bearings
+// learnable. Anything past a slot's first weapon opens on dwell, and a card
+// that is hiding others says so with a small "+N" in its corner (wr_marker's
+// sibling badge) rather than looking identical to one that is not.
+//
+// 0 and a very large number are the two ends of what used to be a plain on/
+// off switch -- always collapsed, or always flat. Between them the ring picks
+// flat while it can afford to and only gives up the fixed bearing once it
+// actually has to, which is new: it used to be one or the other for the whole
+// game, not decided per loadout.
+user int wr_subcards_max = 10;
 
 
 // REAL MODELS ON THE CARDS
