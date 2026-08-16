@@ -8,3 +8,33 @@ AddMenuKey "Main hand wheel" wr_toggle_main
 
 DefaultBind ] wr_toggle_off
 DefaultBind [ wr_toggle_main
+
+// GUN READOUT PLACEMENT -- console-only on purpose. This is a calibration
+// tool for whoever is measuring a weapon set, not a normal-play control, so
+// it gets aliases and no default binds. Bind them yourself while placing:
+//   bind <key> wr_place        (enter/exit placement mode)
+//   bind <key> wr_lock         (lock the free hand's touch point)
+//   bind <key> wr_measure      (two-point size measure)
+//   bind <key> wr_save         (print the calibration line)
+//   bind <key> "wr_nudge 0 1"  (nudge one of the eight axes; see wr_gunhud.zs
+//                                for AXIS_F..AXIS_H)
+Alias wr_place   "netevent wr_place"
+Alias wr_lock    "netevent wr_lock"
+Alias wr_measure "netevent wr_measure"
+Alias wr_save    "netevent wr_save"
+Alias wr_nudge_f_pos "netevent wr_nudge 0 1"
+Alias wr_nudge_f_neg "netevent wr_nudge 0 0"
+Alias wr_nudge_l_pos "netevent wr_nudge 1 1"
+Alias wr_nudge_l_neg "netevent wr_nudge 1 0"
+Alias wr_nudge_u_pos "netevent wr_nudge 2 1"
+Alias wr_nudge_u_neg "netevent wr_nudge 2 0"
+Alias wr_nudge_yaw_pos  "netevent wr_nudge 3 1"
+Alias wr_nudge_yaw_neg  "netevent wr_nudge 3 0"
+Alias wr_nudge_tilt_pos "netevent wr_nudge 4 1"
+Alias wr_nudge_tilt_neg "netevent wr_nudge 4 0"
+Alias wr_nudge_roll_pos "netevent wr_nudge 5 1"
+Alias wr_nudge_roll_neg "netevent wr_nudge 5 0"
+Alias wr_nudge_w_pos "netevent wr_nudge 6 1"
+Alias wr_nudge_w_neg "netevent wr_nudge 6 0"
+Alias wr_nudge_h_pos "netevent wr_nudge 7 1"
+Alias wr_nudge_h_neg "netevent wr_nudge 7 0"

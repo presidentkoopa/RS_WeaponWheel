@@ -1,5 +1,10 @@
 ﻿version "4.10"
 
+// wr_gunhud.zs -- the on-weapon ammo readout. Separate file, separate class
+// (wr_GunTag, its own EventHandler), because it shares no state with the ring
+// and growing one already-large file further would only cost readability.
+#include "wr_gunhud.zs"
+
 // Wrist rig -- weapon cards in a ring around one hand, taken by pointing at
 // one and pulling the trigger, or by reaching into it.
 //

@@ -92,6 +92,31 @@ OptionMenu wr_Options
 	Option "  Rolled weapon stats",     "wr_sheet_stats",  "OnOff"
 
 	StaticText ""
+	StaticText "The gun's own readout", gold
+	// A count welded to the weapon in your hand, separate from the ring's own
+	// cards -- it is there whether the ring is open or not.
+	Option "Show it",                   "wr_gun",          "OnOff"
+	Option "  On the off-hand weapon too", "wr_gun_offhand", "OnOff"
+	// Flush reads as part of the gun and needs a weapon measured to look
+	// right; facing you is always readable and needs nothing measured.
+	Option "  Placement",               "wr_gun_face",     "wr_GunFacing"
+	Option "  Which side of the gun",   "wr_gun_side",     "wr_GunSides"
+	Option "  LCD instead of LED",      "wr_gun_lcd",      "OnOff"
+	Slider "  Glow",                    "wr_gun_glow",     0.0, 2.0, 0.05, 2
+	// The one placement nobody has measured falls back to this -- one guess,
+	// not a table of them, and it is honestly approximate rather than quietly
+	// wrong. wr_place fixes the guns that actually matter.
+	Slider "  Fallback forward",        "wr_gun_f",       -4.0, 16.0, 0.25, 2
+	Slider "  Fallback left",           "wr_gun_l",       -8.0, 8.0, 0.25, 2
+	Slider "  Fallback up",             "wr_gun_u",       -8.0, 8.0, 0.25, 2
+	Slider "  Fallback width",          "wr_gun_w",        1.0, 16.0, 0.25, 2
+	Slider "  Fallback height",         "wr_gun_h",        1.0, 10.0, 0.25, 2
+	// Source cannot answer this one -- it depends on which way your actual
+	// runtime reports wrist roll. Flip it if the readout rolls backwards when
+	// you turn the gun over.
+	Option "  Roll follows wrist as",   "wr_gun_rollsign", "wr_RollSign"
+
+	StaticText ""
 	StaticText "The room", gold
 	// All four borrow a single global engine slot each. A co-loaded mod using
 	// the same slot gets it back the moment the rig closes.
@@ -259,4 +284,22 @@ OptionValue wr_Readouts
 	0, "LED segments"
 	1, "LCD, punched out"
 	2, "Lozenge badge"
+}
+
+OptionValue wr_GunFacing
+{
+	0, "Flush on the weapon"
+	1, "Facing you"
+}
+
+OptionValue wr_GunSides
+{
+	0, "Side A"
+	1, "Side B"
+}
+
+OptionValue wr_RollSign
+{
+	1,  "Forward"
+	-1, "Reversed"
 }

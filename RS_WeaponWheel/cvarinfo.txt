@@ -386,3 +386,53 @@ user float wr_sheet_scale = 1.0;
 // no weapon mod loaded at all.
 user bool  wr_sheet_stats = true;
 
+
+// THE GUN'S OWN READOUT
+//
+// A count welded to the weapon in your hand, not just to the ring. See
+// wr_gunhud.zs for why this is a fixed offset in the hand's own frame rather
+// than anything attached to the model -- the model's world transform is not
+// reachable from script at all, and attaching to the weapon actor would put
+// the counter at your ankles, where a held weapon's Pos() actually is.
+user bool  wr_gun         = true;
+user bool  wr_gun_offhand = true;
+
+// 0 lies it flush on the weapon, occluded by the gun's own geometry the way
+// depth testing already works by default -- the Dead Space reading. 1 turns
+// it to face you wherever the gun points -- always readable, reads as HUD
+// rather than as part of the gun. Both are real; the default is the one that
+// needed the placement tool built to be worth shipping.
+user int   wr_gun_face     = 0;
+// Which flank of the gun a flush panel sits on. 0 and 1 are the two sides.
+user int   wr_gun_side     = 0;
+user bool  wr_gun_lcd      = false;
+
+user color wr_gun_color = "35 E0 A0";
+user color wr_gun_dry   = "D8 40 2E";
+user float wr_gun_glow  = 0.7;
+
+// The GLOBAL fallback placement, used for any weapon nobody has measured yet.
+// Deliberately one guess and not a table of guesses by archetype -- a table
+// would be right for whatever it was tuned against and quietly wrong for
+// everything else while looking deliberate. wr_place fixes the guns that
+// actually matter; this just keeps the rest from having no readout at all.
+user float wr_gun_f = 6.0;    // forward, out along the barrel
+user float wr_gun_l = 2.5;    // left, across the grip
+user float wr_gun_u = 1.5;    // up, off the top of the receiver
+user float wr_gun_w = 7.0;
+user float wr_gun_h = 3.0;
+
+// Nudge step while placing -- map units per press, degrees per press.
+user float wr_gun_step  = 0.25;
+user float wr_gun_astep = 5.0;
+
+// Which hand wr_place calibrates. 0 main, 1 off -- the OTHER hand is always
+// the cursor, so placing an offhand weapon means flipping this first.
+user int   wr_gun_placehand = 0;
+
+// Flips which way positive wrist roll turns the panel. Source cannot answer
+// this one -- it depends on the handedness convention OpenXR happens to
+// report on your actual runtime. Leave it at 1; if the readout rolls the
+// wrong way when you turn the gun over, set it to -1.
+user int   wr_gun_rollsign = 1;
+
