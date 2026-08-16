@@ -1786,8 +1786,11 @@ class wr_Rig : EventHandler
 		if (w <= 0.0 || w <= boxW) return text;
 
 		int best = -1;
-		int mid = text.Length() / 2;
-		for (int i = 0; i < text.Length(); ++i)
+		// Length() is unsigned; cast once rather than compare a signed loop
+		// counter against it every iteration -- same fix as classNameHash.
+		int len = int(text.Length());
+		int mid = len / 2;
+		for (int i = 0; i < len; ++i)
 		{
 			if (text.ByteAt(i) != 0x20) continue;          // ' '
 			if (best < 0 || abs(i - mid) < abs(best - mid)) best = i;
