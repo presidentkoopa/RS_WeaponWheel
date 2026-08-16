@@ -18,7 +18,7 @@ do not exist in stock GZDoom and it will not load without them.
 
 Load `RS_WeaponWheel.pk3` after your IWAD and any weapon mod.
 
-Then bind the two keys — **Options → Wrist Rig → Controls**:
+Then bind the two keys — **Options → RSVR HUD → Controls**:
 
 - **Off hand wheel**
 - **Main hand wheel**
@@ -68,7 +68,7 @@ your hands swap. Nothing is ever dropped, and doing it again puts them back.
 
 ## Making it yours
 
-Everything is under **Options → Wrist Rig**. Nothing needs the console.
+Everything is under **Options → RSVR HUD**. Nothing needs the console.
 
 **Placement** — how far ahead the ring floats, how wide it is, how high above
 your hand it sits, how far it leans toward you. All live: open the ring and drag
@@ -103,7 +103,7 @@ setting; turning haptics off in DoomXR cannot be overridden from here.
 
 ## If something looks wrong
 
-Turn on **Options → Wrist Rig → Troubleshooting → Print diagnostics on open**.
+Turn on **Options → RSVR HUD → Troubleshooting → Print diagnostics on open**.
 It prints one line when the ring opens saying what actually got built — how many
 cards, which card style is live, and whether the painted faces painted. It only
 reports problems you would not otherwise be able to see.

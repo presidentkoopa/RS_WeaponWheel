@@ -123,7 +123,7 @@ the first gives a clean compile and a script error at load.
 ## Settings
 
 All live: change one with the ring open and the next tic has it. Everything is
-reachable from **Options → Wrist Rig** — nothing here is console-only.
+reachable from **Options → RSVR HUD** — nothing here is console-only.
 
 Two binds, one per hand. Whichever hand you summon it on is the hand that wears
 it, points at it, and receives what you pick, so there is no handedness setting

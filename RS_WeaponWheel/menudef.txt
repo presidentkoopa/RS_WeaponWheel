@@ -8,12 +8,12 @@
 // Added to BOTH option menus: OptionsMenuSimple is what a lot of people
 // actually browse, and a mod that only appears in the full one is a mod half
 // its users never find.
-AddOptionMenu OptionsMenu       { Submenu "Wrist Rig", wr_Options }
-AddOptionMenu OptionsMenuSimple { Submenu "Wrist Rig", wr_Options }
+AddOptionMenu OptionsMenu       { Submenu "RSVR HUD", wr_Options }
+AddOptionMenu OptionsMenuSimple { Submenu "RSVR HUD", wr_Options }
 
 OptionMenu wr_Options
 {
-	Title "WRIST RIG"
+	Title "RSVR HUD"
 
 	StaticText ""
 	StaticText "Behaviour", gold
@@ -196,7 +196,7 @@ OptionValue wr_ShapeKinds
 // point of the page.
 OptionMenu wr_RoomDetail
 {
-	Title "WRIST RIG - ROOM DETAIL"
+	Title "RSVR HUD - ROOM DETAIL"
 
 	StaticText ""
 	StaticText "Laser volume", gold

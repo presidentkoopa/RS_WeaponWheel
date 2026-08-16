@@ -553,7 +553,7 @@ class wr_Rig : EventHandler
 			bool overPool  = wantCanvas && mIds.Size() > FACE_POOL;
 
 			Console.Printf(
-				"\c[Gold]WRISTRIG\c- %d cards | plate %s | faces %d/%d%s | icons %d | hand %s",
+				"\c[Gold]RSVR HUD\c- %d cards | plate %s | faces %d/%d%s | icons %d | hand %s",
 				mIds.Size(),
 				(plateKind() == LevelLocals.BB_SDFPANEL) ? "sdf" : "sampled",
 				faces, (wantCanvas && !overPool) ? mIds.Size() : 0,
@@ -565,12 +565,12 @@ class wr_Rig : EventHandler
 			// known fix, rather than a number to interpret.
 			if (wantCanvas && !overPool && faces == 0)
 			{
-				Console.Printf("\c[Gold]WRISTRIG\c- canvas returned nothing: "
+				Console.Printf("\c[Gold]RSVR HUD\c- canvas returned nothing: "
 					"WRFACEnn undeclared, or animdefs.txt not loaded");
 			}
 			if (overPool)
 			{
-				Console.Printf("\c[Gold]WRISTRIG\c- %d cards over the pool of %d, "
+				Console.Printf("\c[Gold]RSVR HUD\c- %d cards over the pool of %d, "
 					"whole ring composed -- lower wr_subcards_max to keep it under",
 					mIds.Size(), FACE_POOL);
 			}
@@ -1359,7 +1359,7 @@ class wr_Rig : EventHandler
 		setCv("wr_roll",    0.0);
 
 		stamp.SetInt(CFG_VERSION);
-		Console.Printf("\c[Gold]WRISTRIG\c- geometry updated to gen %d", CFG_VERSION);
+		Console.Printf("\c[Gold]RSVR HUD\c- geometry updated to gen %d", CFG_VERSION);
 	}
 
 	private static void setCv(string name, double value)

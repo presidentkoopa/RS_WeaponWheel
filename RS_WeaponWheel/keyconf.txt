@@ -2,7 +2,7 @@ Alias wr_toggle      "netevent wr_toggle_off"
 Alias wr_toggle_off  "netevent wr_toggle_off"
 Alias wr_toggle_main "netevent wr_toggle_main"
 
-AddKeySection "Wrist Rig" wr_Keys
+AddKeySection "RSVR HUD" wr_Keys
 AddMenuKey "Off hand wheel"  wr_toggle_off
 AddMenuKey "Main hand wheel" wr_toggle_main
 
