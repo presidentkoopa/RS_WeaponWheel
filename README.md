@@ -3,7 +3,7 @@
 Your weapons, as cards floating in the room around your hand. Point at one and
 pull the trigger, or just reach out and grab it.
 
-Built for VR.
+Built for VR. (sorry this video is crap, capturing in vr is rough)
 
 ![The wheel in action](media/demo.gif)
 
