@@ -5,6 +5,8 @@ pull the trigger, or just reach out and grab it.
 
 Built for VR.
 
+![The wheel in action](media/demo.gif)
+
 ---
 
 ## You will need
