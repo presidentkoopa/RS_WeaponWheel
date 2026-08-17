@@ -214,6 +214,17 @@ user float wr_canvas_scan   = 0.22;
 // why it is easy to miss entirely. Crank it to see what SDF is for.
 user float wr_glow = 1.6;
 
+// The same halo, but a slow ambient breathe on EVERY card instead of a hard
+// switch on the one you are pointing at -- so the ring has a little life in
+// it everywhere, not just where the laser lands. Off by default (0), and
+// even turned on it is deliberately far weaker and slower than wr_glow's own
+// hover halo, which is untouched by this and stays exactly as strong as it
+// always was -- this only fills in what used to be a flat 0 on every card
+// this one is NOT pointing at. Uses whatever colour that card already has
+// (tier, slot, or hashed hue), so every weapon set benefits the same way,
+// not just the ones with a rarity system to colour by.
+user float wr_shimmer = 0.0;
+
 
 // SPARKS
 //
@@ -258,6 +269,16 @@ user float wr_dim = 0.55;
 // per surface they touch, and only one card is ever the answer to "which".
 user bool  wr_light      = true;
 user float wr_light_size = 44.0;
+
+// Tics the light holds its last position/colour after the laser crosses
+// the empty space between two cards, before actually going out. The gap
+// is real hit-testable nothing, and the laser passes through it on every
+// ordinary sweep from one card to its neighbour -- without this, that
+// crossing destroyed the light and spawned a fresh one on arrival, a
+// visible off-then-on blink on every single move across the ring. Long
+// enough to bridge a gap, short enough that actually looking away from
+// the ring still reads as immediate. 0 goes back to the old instant cut.
+user int   wr_light_grace = 3;
 
 // A corner mark on a weapon one of your hands already holds. Informational
 // only -- the card stays selectable, because picking your other hand's gun
@@ -406,6 +427,47 @@ user bool  wr_sheet_stats = true;
 // holding is unremarkable," this is the switch -- off skips the tier lookup
 // entirely and every card falls through to the palette below instead.
 user bool  wr_tier_color = true;
+
+// Same idea, for LegenDoom's own rarity (Common/Uncommon/Rare/Epic) -- see
+// wr_compat_legendoom.zs for how that's read at all, since LegenDoom stores
+// it as an owned inventory marker rather than a field. Kept as its own
+// switch rather than reusing wr_tier_color's name so either mod's colouring
+// can be turned off without touching the other's -- they can't both be true
+// for the same weapon, but a ring can be crossed by guns from both mods in
+// the same session.
+user bool  wr_ld_compat = true;
+
+// The rolled-effect row (DETERMINED, REPLICATING, ...) on top of the
+// rarity above -- see wr_compat_legendoom.zs. Its own switch, under
+// wr_ld_compat, same relationship wr_drla_mods below has to
+// wr_drla_compat: the master switch turns LegenDoom reading off entirely,
+// this one just hides the extra row.
+user bool  wr_ld_effects = true;
+
+// Same again, for DoomRL Arsenal's assembly tier (Basic/Advanced/Master/
+// Exotic) -- see wr_compat_drla.zs. A separate switch from wr_ld_compat for
+// the same reason that one is separate from wr_tier_color: either mod's
+// colouring can be dropped on its own.
+user bool  wr_drla_compat = true;
+
+// The Mod Station row (NANO, BULK, AGIL, ...) on top of the tier above --
+// see wr_compat_drla.zs. Its own switch, under wr_drla_compat, the same
+// relationship wr_sheet_stats has to the RS rows: the master switch turns
+// DRLA reading off entirely, this one just hides the extra row.
+user bool  wr_drla_mods = true;
+
+// Same again, for Doomablo's own rarity (Common/Uncommon/Rare/Epic/
+// Legendary/Mythic/Unique) -- see wr_compat_doomablo.zs. Doomablo stores
+// this as a plain field, read the same way RS_Main's Tier is, but it is
+// still a different mod's field under a different name, so it gets its
+// own switch rather than folding into wr_tier_color.
+user bool  wr_dbl_compat = true;
+
+// Pandemonium Insurrection's augments, durability and Superior augment
+// text -- see wr_compat_pandemonium.zs. No rarity/tier concept in this
+// mod, so unlike the three above this never touches the title row or
+// wr_tier_color -- purely the three extra rows it adds.
+user bool  wr_pand_compat = true;
 
 
 // THE GUN'S OWN READOUT

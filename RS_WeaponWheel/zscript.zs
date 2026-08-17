@@ -5,6 +5,23 @@
 // and growing one already-large file further would only cost readability.
 #include "wr_gunhud.zs"
 
+// wr_compat_legendoom.zs -- reading LegenDoom's own rarity for the data
+// card. Its own file, one per compat target going forward, so any one mod's
+// integration can be diffed, reverted or dropped without touching another's
+// or the ring's own code.
+#include "wr_compat_legendoom.zs"
+
+// wr_compat_drla.zs -- reading DoomRL Arsenal's assembly tier the same way.
+#include "wr_compat_drla.zs"
+
+// wr_compat_doomablo.zs -- reading Doomablo's own rarity field.
+#include "wr_compat_doomablo.zs"
+
+// wr_compat_pandemonium.zs -- reading Pandemonium Insurrection's augment
+// and durability fields. No rarity/tier concept in this one, so unlike
+// the other three compat files it never touches the title row.
+#include "wr_compat_pandemonium.zs"
+
 // Wrist rig -- weapon cards in a ring around one hand, taken by pointing at
 // one and pulling the trigger, or by reaching into it.
 //
@@ -202,6 +219,9 @@ class wr_Rig : EventHandler
 	Array<int> mStackBadges;      // "+N", when this card is hiding others behind it
 	Array<int> mSlotCount;        // how many weapons TOTAL share this card's slot
 	Actor      mLight;            // one dynamic light, on the hovered card
+	int        mLightGrace;       // tics spent pointing at nothing, before the light actually goes out
+	Vector3    mLightLastPos;     // where it was, so a graced tic has somewhere to sit
+	color      mLightLastHue;
 	Array<Actor> mModels;         // a real weapon model per card, when enabled
 
 	// ONE GROUP PER CARD, so a card is an object rather than six loose quads.
@@ -748,6 +768,22 @@ class wr_Rig : EventHandler
 		int tier;
 		bool isRS = level.GetFieldInt(w, "Tier", tier);
 
+		// LegenDoom has no field this fork's reflection natives can read --
+		// see wr_compat_legendoom.zs -- so this is checked independently of
+		// isRS rather than folded into the same GetFieldInt call.
+		bool isLD; int ldRarity;
+		[isLD, ldRarity] = wr_CompatLegenDoom.RarityOf(w);
+
+		bool isDRLA; int drlaTier;
+		[isDRLA, drlaTier] = wr_CompatDRLA.TierOf(w);
+
+		// Doomablo's generatedRarity IS a plain field, same shape as isRS
+		// above -- but a different field name on a different mod's class,
+		// so it still needs its own GetFieldInt call rather than reusing
+		// "Tier".
+		bool isDBL; int dblRarity;
+		[isDBL, dblRarity] = wr_CompatDoomablo.RarityOf(w);
+
 		// HANDLING RIDES THE TOP ROW rather than taking one of its own. Nine
 		// row slots is the hard ceiling before content draws off the plate,
 		// and a two-handed magazine weapon needs every one of them -- so the
@@ -756,6 +792,18 @@ class wr_Rig : EventHandler
 
 		if (isRS)
 			sheetRow(hands.Length() ? (tierWord(tier) .. "  " .. hands) : tierWord(tier),
+			         tierColorOf(w));
+		else if (isLD)
+			sheetRow(hands.Length() ? (wr_CompatLegenDoom.RarityWord(ldRarity) .. "  " .. hands)
+			                        : wr_CompatLegenDoom.RarityWord(ldRarity),
+			         tierColorOf(w));
+		else if (isDRLA)
+			sheetRow(hands.Length() ? (wr_CompatDRLA.TierWord(drlaTier) .. "  " .. hands)
+			                        : wr_CompatDRLA.TierWord(drlaTier),
+			         tierColorOf(w));
+		else if (isDBL)
+			sheetRow(hands.Length() ? (wr_CompatDoomablo.RarityWord(dblRarity) .. "  " .. hands)
+			                        : wr_CompatDoomablo.RarityWord(dblRarity),
 			         tierColorOf(w));
 		else if (slotOf(w) >= 1 && slotOf(w) <= 9)
 			sheetRow(hands.Length() ? String.Format("SLOT %d  %s", slotOf(w), hands)
@@ -797,6 +845,47 @@ class wr_Rig : EventHandler
 			int shots = ammoLoaded(w) / use;
 			sheetRow(String.Format("SHOTS %d  (%d/ea)", shots, use), SHEET_MEAS);
 		}
+
+		// LegenDoom's rolled effects -- independent of ldRarity above, same
+		// reasoning as DRLA's mods below: read straight off the held
+		// weapon's own owned items, not gated on rarity having been found.
+		string ldEffects = wr_CompatLegenDoom.EffectsOf(w);
+		if (ldEffects.Length() > 0)
+			sheetRow("EFFECT " .. ldEffects, SHEET_TEXT);
+
+		// DRLA's Mod Station upgrades -- independent of drlaTier above, see
+		// wr_compat_drla.zs, since a mod's own name is built from the held
+		// weapon's class rather than its tier.
+		int drlaModMask, drlaModMask2;
+		[drlaModMask, drlaModMask2] = wr_CompatDRLA.ModsOf(w);
+		if (drlaModMask != 0)
+			sheetRow("MOD " .. wr_CompatDRLA.ModsWord(drlaModMask, drlaModMask2), SHEET_TEXT);
+
+		// Pandemonium Insurrection's augments, durability and Superior
+		// text -- see wr_compat_pandemonium.zs. No tier concept in this
+		// mod, so none of this touched the title row above; these three
+		// are purely supplementary, each independently gated the same way
+		// DRLA's mod row is.
+		bool hasAugs; int curAugs, maxAugs;
+		[hasAugs, curAugs, maxAugs] = wr_CompatPandemonium.CountOf(w);
+		if (hasAugs && curAugs > 0)
+		{
+			string breakdown = wr_CompatPandemonium.BreakdownOf(w);
+			sheetRow(breakdown.Length() ? String.Format("AUG %d/%d  %s", curAugs, maxAugs, breakdown)
+			                            : String.Format("AUG %d/%d", curAugs, maxAugs), SHEET_TEXT);
+		}
+
+		bool hasDura; int dura, duraMax; bool duraBroken;
+		[hasDura, dura, duraMax, duraBroken] = wr_CompatPandemonium.DurabilityOf(w);
+		if (hasDura)
+			sheetRow(String.Format("DURA %d/%d", dura, duraMax),
+			         duraBroken ? color(SHEET_LOCK)
+			                    : (duraMax > 0 && dura * 4 < duraMax) ? color(COLOR_AMMO_DRY) : color(SHEET_MEAS));
+
+		bool hasSup; string supText;
+		[hasSup, supText] = wr_CompatPandemonium.SuperiorOf(w);
+		if (hasSup)
+			sheetRow("SUPERIOR " .. (supText.Length() > 26 ? (supText.Left(23) .. "...") : supText), SHEET_HOT);
 
 		if (isRS && cv("wr_sheet_stats", 1.0) > 0.0) rsRows(w);
 		else                                        setSheetBar(0, SHEET_MEAS, false);
@@ -969,6 +1058,15 @@ class wr_Rig : EventHandler
 	{
 		bool found; color tier;
 		[found, tier] = rsTierLookup(w);
+		if (found) return tier;
+
+		[found, tier] = wr_CompatLegenDoom.TierOf(w);
+		if (found) return tier;
+
+		[found, tier] = wr_CompatDRLA.ColorOf(w);
+		if (found) return tier;
+
+		[found, tier] = wr_CompatDoomablo.TierOf(w);
 		if (found) return tier;
 
 		int slot = slotOf(w);
@@ -2508,6 +2606,15 @@ class wr_Rig : EventHandler
 			bool found; color tier;
 			[found, tier] = rsTierLookup(held);
 			if (found) return tier;
+
+			[found, tier] = wr_CompatLegenDoom.TierOf(held);
+			if (found) return tier;
+
+			[found, tier] = wr_CompatDRLA.ColorOf(held);
+			if (found) return tier;
+
+			[found, tier] = wr_CompatDoomablo.TierOf(held);
+			if (found) return tier;
 		}
 
 		if (slot >= 1 && slot <= 9) return slotColor(slot);
@@ -3800,8 +3907,24 @@ class wr_Rig : EventHandler
 				// BB_PANEL the call is simply ignored, so the switch needs no
 				// branch here.
 				double g = cv("wr_glow", 1.0);
-				level.SetBillboardGlow(mPlates[i], lit ? clamp(GLOW_R * g, 0.0, 1.0) : 0.0,
-				                                   lit ? GLOW_S * g : 0.0);
+
+				// AMBIENT SHIMMER, off the same halo -- a slow, low breathe on
+				// every UNHOVERED card, using the card's own colour (the plate
+				// is already tinted to it; this just intensifies the field
+				// already there, same as the hover halo does). Off by default
+				// (wr_shimmer 0), and even on, it is deliberately far weaker and
+				// slower than the hover halo -- this fills in what used to be a
+				// hard 0.0 rather than competing with it, so hovering still
+				// reads as unmistakably "this one". Plate only, not the label:
+				// the label's own halo is reserved for hover so the name stays
+				// the clean, unambiguous "which one" signal it always was.
+				double shimmerAmt = cv("wr_shimmer", 0.0);
+				double shimmerFrac = 0.5 + 0.5 * sin(level.maptime * SHIMMER_SPEED + i * SHIMMER_PHASE);
+				double sr = shimmerAmt * shimmerFrac;
+
+				level.SetBillboardGlow(mPlates[i],
+					lit ? clamp(GLOW_R * g, 0.0, 1.0) : clamp(GLOW_R * sr, 0.0, 1.0),
+					lit ? GLOW_S * g : GLOW_S * sr);
 			}
 
 			// The slot bar, pinned to the card's top edge.
@@ -4512,6 +4635,7 @@ class wr_Rig : EventHandler
 		// and clearing the pool would take everyone else's with it.
 		if (mShapeSlot >= 0) { level.RemoveShape(mShapeSlot); mShapeSlot = -1; }
 		if (mLight != null)  { mLight.Destroy(); mLight = null; }
+		mLightGrace = 0;
 		clearCardModels();
 		if (mWaveHeld)  { level.SetGlowWave(0.0, 0.0, 0.0, 0); mWaveHeld = false; }
 	}
@@ -4803,7 +4927,8 @@ class wr_Rig : EventHandler
 	// switched on.
 	private void cardLight(PlayerPawn pmo)
 	{
-		bool want = cv("wr_light", 1.0) > 0.0 && mHovered != 0;
+		bool want = cv("wr_light", 1.0) > 0.0;
+		bool resolved = mHovered != 0;
 
 		// WHERE, AND WHAT COLOUR -- resolved up front from EITHER index space,
 		// because the light does not care which of the two a card came from.
@@ -4811,29 +4936,56 @@ class wr_Rig : EventHandler
 		// on a fan card, so unfolding a slot and moving one step darkened the
 		// room: the exact opposite of what a fan needs, since telling four
 		// near-identical weapons apart is what the light is for.
-		Vector3 here = (0, 0, 0);
-		color lightHue = COLOR_BEAM_IDLE;
+		Vector3 here = mLightLastPos;
+		color lightHue = mLightLastHue;
 
-		int card = cardIndexOf(mHovered);
-		if (card >= 0 && card < mCardX.Size() && card < mCardColor.Size())
+		if (resolved)
 		{
-			here = cardPos(card);
-			lightHue = mCardColor[card];
+			int card = cardIndexOf(mHovered);
+			if (card >= 0 && card < mCardX.Size() && card < mCardColor.Size())
+			{
+				here = cardPos(card);
+				lightHue = mCardColor[card];
+			}
+			else
+			{
+				int sub = subIndexOf(mHovered);
+				if (sub >= 0 && sub < mSubX.Size() && sub < mSubColor.Size())
+				{
+					here = subPos(sub);
+					lightHue = mSubColor[sub];
+				}
+				else resolved = false;
+			}
+		}
+
+		// GRACED, NOT INSTANT. The gap between two cards is empty space on
+		// purpose -- see wr_touch's own note on generous hit-testing -- and the
+		// laser crosses it on every single sweep from one card to its neighbour.
+		// Treating that crossing as "nothing hovered" destroyed the light and
+		// spawned a fresh one on arrival, which is a visible off-then-on for
+		// every card-to-card move: the ring never goes dark on purpose, so a
+		// light doing it on its own reads as broken. A few graced tics let the
+		// light sit at its last known spot through a gap and glide onward the
+		// moment a real card answers, rather than blinking each time. Long
+		// enough to bridge a gap, short enough that actually looking away still
+		// reads as immediate.
+		if (!resolved)
+		{
+			if (mLight == null) want = false;
+			else if (++mLightGrace >= int(cv("wr_light_grace", 3.0))) want = false;
 		}
 		else
 		{
-			int sub = subIndexOf(mHovered);
-			if (sub >= 0 && sub < mSubX.Size() && sub < mSubColor.Size())
-			{
-				here = subPos(sub);
-				lightHue = mSubColor[sub];
-			}
-			else want = false;
+			mLightGrace = 0;
+			mLightLastPos = here;
+			mLightLastHue = lightHue;
 		}
 
 		if (!want)
 		{
 			if (mLight != null) { mLight.Destroy(); mLight = null; }
+			mLightGrace = 0;
 			return;
 		}
 
@@ -5314,6 +5466,14 @@ class wr_Rig : EventHandler
 	// halo clips square at the glyph cell.
 	const GLOW_R = 0.75;
 	const GLOW_S = 0.9;
+
+	// The idle shimmer's own clock. Slow on purpose -- a lazy multi-second
+	// breathe, not the hover pulse's quick one -- and SHIMMER_PHASE offsets
+	// it per card so the ring twinkles as a field of independently breathing
+	// lights rather than flashing in lockstep. Degrees per tic, same
+	// convention as PULSE_SPEED: ZScript's trig takes degrees, not radians.
+	const SHIMMER_SPEED = 3.0;
+	const SHIMMER_PHASE = 47.0;
 
 	// Tics the ring takes to fold away. The billboards outlive closeRig by this
 	// much so it can collapse rather than blink out.
