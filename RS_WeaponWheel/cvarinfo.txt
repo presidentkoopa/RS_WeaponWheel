@@ -53,6 +53,25 @@ user float wr_pop      = 1.5;
 // Hovering a card resets it.
 user int   wr_locktics = 140;
 
+// How many tics before the idle-close, the ring starts visibly fading and
+// gives one haptic tick -- a warning window, not a second timer. 0 disables
+// the warning outright (the ring still closes on schedule, it just does so
+// without notice, same as before this existed).
+user int   wr_warn_tics = 25;
+
+// Which hand wr_toggle_main/wr_toggle_off actually open the ring on: -1
+// (default) means each bind opens on the hand its own name says. 0 or 1
+// routes BOTH binds to that hand instead -- but only while nothing is
+// open; a ring already open still responds to whichever bind was actually
+// pressed, so either key can still reach and close it.
+user int   wr_toggle_prefer_hand = -1;
+
+// Tics after opening, pressing the SAME hand's toggle key again recenters
+// the ring on your current hand position instead of closing it. 0 turns
+// the recenter off entirely -- the same key always closes, exactly as
+// before this existed.
+user int   wr_recenter_window = 10;
+
 // Master size. Grows distance, card size and reach together, so "make it
 // bigger" stays one thought instead of four sliders.
 user float wr_scale    = 1.0;

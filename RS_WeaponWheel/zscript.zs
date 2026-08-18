@@ -218,6 +218,12 @@ class wr_Rig : EventHandler
 	Array<int> mMarks;            // "you already have this", per card
 	Array<int> mStackBadges;      // "+N", when this card is hiding others behind it
 	Array<int> mSlotCount;        // how many weapons TOTAL share this card's slot
+	// Parallel to mStackBadges/mSlotCount: true when a collapsed card's
+	// slot has more than one weapon AND every one of them is dry. Read
+	// once at badge-creation time to colour the "+N" red instead of its
+	// usual neutral -- a player can see, before spending the dwell to
+	// expand a fan, whether there is any point.
+	Array<bool> mSlotAllDry;
 	Actor      mLight;            // one dynamic light, on the hovered card
 	int        mLightGrace;       // tics spent pointing at nothing, before the light actually goes out
 	Vector3    mLightLastPos;     // where it was, so a graced tic has somewhere to sit
@@ -329,6 +335,15 @@ class wr_Rig : EventHandler
 	Array<int>    mSubShadows;
 	Array<int>    mSubGauges;
 	int mExpanded;                // index into mIds, or -1
+	// A collapsed slot's face is always variants[0] -- first by SetSlot
+	// registration order, not by anything the player has actually done.
+	// Remembered per slot (index 0..9, matching gatherWeapons' own pass
+	// numbering) so the face a player actually reaches for keeps showing
+	// up first, rather than making them dwell into the fan every time
+	// just to reach their own third variant. Session-lifetime, not
+	// per-open -- an EventHandler instance survives level transitions,
+	// closing and reopening the ring does not reset what was learned.
+	Class<Weapon> mLastPicked[10];
 	int mDwellTics;               // how long the hover has sat on one card
 	int mCollapseGrace;           // consecutive tics on a genuine off-fan
 	                               // hit -- see updateHover's own comment
@@ -460,14 +475,40 @@ class wr_Rig : EventHandler
 		// A wheel per hand. Whichever hand you summon it on is the hand that
 		// wears it, points at it, and receives what you pick -- so the bind you
 		// press already says which hand you meant.
-		if (e.Name ~== "wr_toggle_off")  { toggle(1); return; }
-		if (e.Name ~== "wr_toggle_main") { toggle(0); return; }
+		if (e.Name ~== "wr_toggle_off")  { toggle(preferredToggleHand(1)); return; }
+		if (e.Name ~== "wr_toggle_main") { toggle(preferredToggleHand(0)); return; }
 		if (e.Name ~== "wr_toggle")      { toggle(1); return; }
 
 		if (e.Name ~== "wr_grab")
 		{
 			let pmo = players[consoleplayer].mo;
 			if (pmo != null && mOpen && mHovered != 0) commit(pmo);
+			return;
+		}
+
+		if (e.Name ~== "wr_expand")
+		{
+			// Re-checked server-side, same gates InputProcess already
+			// applied client-side -- an event in flight can arrive after
+			// state that made it valid has already changed.
+			let pmo = players[consoleplayer].mo;
+			if (pmo != null && mOpen && mHovered != 0 && mFansEnabled
+				&& !belongsToExpansion(mHovered))
+			{
+				int before = mSubIds.Size();
+				expandSlot(pmo, cardIndexOf(mHovered));
+				// Only if a fan actually opened -- same "silence over a
+				// false announcement" rule the dwell path itself uses.
+				if (mSubIds.Size() > before)
+				{
+					feedback(Sound("wristrig/tick"), 0.30, 45);
+					// The dwell timer would otherwise still be counting
+					// toward the same expansion this gesture just did --
+					// not wrong, just a wasted tic count sitting there
+					// for no reason once the fan is already open.
+					mDwellTics = 0;
+				}
+			}
 			return;
 		}
 	}
@@ -485,6 +526,23 @@ class wr_Rig : EventHandler
 	{
 		if (!mOpen || mHovered == 0) return false;
 		if (e.Type != InputEvent.Type_KeyDown) return false;
+
+		// +use WHILE HOVERING, NOT TOUCHING -- pop a fan instantly instead
+		// of waiting out DWELL_TO_EXPAND. Deliberately the opposite reach
+		// of the grab's own +use case three lines down: that one fires
+		// only WHEN mTouching (a hand already on the card), this one only
+		// when NOT touching (aiming at range) -- so the same key means two
+		// different, non-overlapping things depending on how you are
+		// pointing, rather than needing a second bind. Gated identically
+		// to the dwell path itself (mFansEnabled, not already expanded)
+		// so this can never open something the dwell timer couldn't.
+		if (!mTouching && wr_Keybind.isKeyFor(e.KeyScan, "+use")
+			&& mFansEnabled && !belongsToExpansion(mHovered))
+		{
+			EventHandler.SendNetworkEvent("wr_expand");
+			return true;
+		}
+
 		// EITHER trigger. The rig is worn and worked by one hand, and which hand
 		// that is depends on which key opened it -- so insisting on the main
 		// trigger made the off-hand rig unusable with the off-hand controller.
@@ -500,12 +558,60 @@ class wr_Rig : EventHandler
 	}
 
 
+	// A fat-fingered wr_toggle_main/wr_toggle_off shouldn't have to mean
+	// "summon on this specific hand" for a player who always means the
+	// same hand anyway. wr_toggle_prefer_hand (-1 off, 0 main, 1 off-hand)
+	// overrides which hand a bind actually opens on -- but ONLY while
+	// nothing is open. If a ring is already up (on either hand), the bind
+	// that was actually pressed still routes to the hand it names, so
+	// either key can still reach and close whichever ring is really open,
+	// rather than a preference silently eating the one press that would
+	// have closed it.
+	private int preferredToggleHand(int pressedHand) const
+	{
+		int pref = int(cv("wr_toggle_prefer_hand", -1.0));
+		if (pref != 0 && pref != 1) return pressedHand;
+		if (mOpen) return pressedHand;
+		return pref;
+	}
+
 	// Pressing the OTHER hand's key while one is open moves the rig across
 	// rather than closing it, for the same reason a menu with two tabs does not
 	// make you shut it to change tab.
+	//
+	// PRESSING THE SAME HAND'S KEY AGAIN, VERY SOON AFTER OPENING,
+	// RECENTERS INSTEAD OF CLOSING. The anchor freezes once per open (see
+	// layout()) and is never revisited, so a ring that opened facing a
+	// wall, or just where your hand happened to be a moment ago, had no
+	// way back short of closing and reopening it -- losing whatever you
+	// were about to do. Clearing mHaveAnchor alone is the whole mechanism:
+	// mOpen, the card arrays, gatherWeapons -- nothing else about the
+	// ring's state is touched, so this recenters in place rather than
+	// tearing anything down.
+	//
+	// mOpenTics, not a new timestamp -- it already counts up from 0 every
+	// tic since THIS open (it drives the grow-in animation). A same-hand
+	// press landing in its first few tics reads as "I just opened this
+	// and I am still adjusting", not "I have been looking at this and I
+	// am done" -- the two intents that would otherwise collide on the
+	// exact same key. Deliberately short (default under a third of a
+	// second) so it cannot be mistaken for a normal, considered close:
+	// outside that window, the same press closes instantly, exactly as
+	// it always has.
 	private void toggle(int hand)
 	{
-		if (mOpen && mRigHand == hand) { closeRig(); return; }
+		if (mOpen && mRigHand == hand)
+		{
+			int window = int(cv("wr_recenter_window", 10.0));
+			if (window > 0 && mOpenTics <= window)
+			{
+				mHaveAnchor = false;
+				feedback(Sound("wristrig/move"), 0.30, 40);
+				return;
+			}
+			closeRig();
+			return;
+		}
 
 		// Moving across hands takes the old ring down HARD. Letting it fold while
 		// the new one grows would put two rings in the air at once, each holding
@@ -1416,6 +1522,7 @@ class wr_Rig : EventHandler
 		mCardSlots.Clear();
 		mCardColor.Clear();
 		mSlotCount.Clear();
+		mSlotAllDry.Clear();
 		mTouching  = false;
 		mOpen      = false;
 		mOpenTics  = 0;
@@ -1598,6 +1705,7 @@ class wr_Rig : EventHandler
 		mCardSlots.Clear();
 		mCardColor.Clear();
 		mSlotCount.Clear();
+		mSlotAllDry.Clear();
 
 		// FLAT WHILE IT CAN AFFORD TO, COLLAPSED ONCE IT HAS TO.
 		//
@@ -1619,6 +1727,27 @@ class wr_Rig : EventHandler
 			Array<Class<Weapon> > variants;
 			slotWeapons(pmo, slot, variants);
 			if (variants.Size() == 0) continue;
+
+			// COLLAPSED ONLY: move the remembered pick to the front. A flat
+			// ring shows every variant anyway (order becomes which bearing
+			// each sits at, not which one leads), so this only matters --
+			// and only runs -- when the ring is actually collapsing slots,
+			// which is decided a few lines below but cheap to check again
+			// here rather than threading a flag through.
+			if (mFansEnabled && variants.Size() > 1 && slot >= 0 && slot < 10
+				&& mLastPicked[slot] != null && variants[0] != mLastPicked[slot])
+			{
+				for (int vi = 1; vi < variants.Size(); ++vi)
+				{
+					if (variants[vi] == mLastPicked[slot])
+					{
+						Class<Weapon> tmp = variants[0];
+						variants[0] = variants[vi];
+						variants[vi] = tmp;
+						break;
+					}
+				}
+			}
 
 			// FANS, OR EVERYTHING ON THE RING -- decided once, above, for the
 			// whole ring, so two slots can never disagree about which mode
@@ -1662,6 +1791,25 @@ class wr_Rig : EventHandler
 				// variants.Size() == 1, since nothing is left behind a card
 				// that already has its own.
 				mSlotCount.Push(variants.Size());
+
+				// Checked across EVERY variant in the slot, not just this
+				// shown one -- the point is telling a player, before they
+				// spend the dwell to expand a fan, whether any of what is
+				// hidden behind this card is actually worth reaching. A
+				// flat card (variants.Size() == 1) never has anything
+				// hidden, so it is never marked dry here regardless of its
+				// own ammo -- that is what the card's own ammo readout is
+				// for.
+				bool allDry = variants.Size() > 1;
+				if (allDry)
+				{
+					for (int vi = 0; vi < variants.Size(); ++vi)
+					{
+						let vHeld = Weapon(pmo.FindInventory(variants[vi]));
+						if (vHeld != null && ammoLoaded(vHeld) != 0) { allDry = false; break; }
+					}
+				}
+				mSlotAllDry.Push(allDry);
 			}
 		}
 	}
@@ -3438,10 +3586,15 @@ class wr_Rig : EventHandler
 			int bid = 0;
 			if (mFansEnabled && i < mSlotCount.Size() && mSlotCount[i] > 1)
 			{
+				// Red instead of the neutral stack colour when every
+				// hidden variant is dry -- computed once, in gatherWeapons,
+				// across the whole slot rather than just the shown card.
+				bool allDry = (i < mSlotAllDry.Size()) && mSlotAllDry[i];
 				bid = level.AddBillboardPersistent(
 					(0, 0, 0), 3.5, 2.5, 0, 0,
 					LevelLocals.BBF_FIXED, LevelLocals.BB_TEXT, 0,
-					COLOR_STACK, LevelLocals.BBFL_NOHIT, 0,
+					allDry ? color(COLOR_AMMO_DRY) : COLOR_STACK,
+					LevelLocals.BBFL_NOHIT, 0,
 					String.Format("+%d", mSlotCount[i] - 1));
 			}
 			mStackBadges.Push(bid);
@@ -3845,6 +3998,16 @@ class wr_Rig : EventHandler
 		double hShimmer     = cv("wr_shimmer", 0.0);
 		double hParallax    = cv("wr_parallax", 0.06);
 
+		// The visual half of the idle-close warning -- WorldTick's own
+		// haptic tick (fired once, at the same threshold) is the felt
+		// half. 1.0 outside the warning window; inside it, a floor of
+		// 0.15 rather than fading to nothing, so the ring stays legible
+		// enough to read while it is telling you it is about to leave.
+		double warnFrac = 1.0;
+		int warnTics = int(cv("wr_warn_tics", 25.0));
+		if (warnTics > 0 && mLockTics < warnTics)
+			warnFrac = clamp(double(mLockTics) / warnTics, 0.15, 1.0);
+
 		for (int i = 0; i < n; ++i)
 		{
 			// Position is the slot's bearing on the ring, clockwise from north
@@ -3969,6 +4132,7 @@ class wr_Rig : EventHandler
 			// top of the loop, forty lines before either of them exists.
 			double cardAlpha = 1.0;
 			if (mHovered != 0 && !lit) cardAlpha = clamp(hDim, 0.05, 1.0);
+			cardAlpha *= warnFrac;
 
 			// The shadow sits BEHIND the plate -- pushed away from the viewer
 			// rather than toward them -- and offset down and to the side so it
@@ -4358,6 +4522,27 @@ class wr_Rig : EventHandler
 		// dialog in a firefight; one that quietly folds away if you did not mean
 		// to open it costs nothing. Hovering resets it, because a hand on a card
 		// is someone who is still deciding.
+		//
+		// ONE haptic tick, the instant the countdown crosses into its own
+		// warning window -- not a warning if a player never feels it start,
+		// so this fires once rather than buzzing continuously. layout()'s
+		// own warnFrac (below) does the visual half, fading the whole ring
+		// over the same window; this is the felt half. Equality, not a
+		// range check, because mLockTics only ever steps down by exactly
+		// one -- it can only ever equal warnTics on one tic.
+		//
+		// Haptic only, no sound -- there is no dedicated cue for this in
+		// sndinfo.txt, and this is a tactile nudge on the hand already
+		// wearing the rig, not an audible event, the same reasoning
+		// feedback() itself uses to gate its own haptic half on wr_haptics
+		// separately from wr_sound.
+		int warnTics = int(cv("wr_warn_tics", 25.0));
+		if (mLockTics == warnTics)
+		{
+			double warnGain = cv("wr_haptics", 1.0);
+			if (warnGain > 0.0) level.VRHaptic(mPokeHand, 0.3 * warnGain, 40);
+		}
+
 		if (--mLockTics <= 0)
 		{
 			closeRig();
@@ -5501,6 +5686,14 @@ class wr_Rig : EventHandler
 			// group collapse keeps the billboards alive long enough to see it.
 			mFlipCard = hitCard;
 			mFlipTics = CLOSE_TICS;
+
+			// Remembered so a collapsed slot's face is this one next time,
+			// not whatever SetSlot happened to register first.
+			if (hitCard < mCardSlots.Size())
+			{
+				int pickedSlot = mCardSlots[hitCard];
+				if (pickedSlot >= 0 && pickedSlot < 10) mLastPicked[pickedSlot] = want;
+			}
 		}
 		else
 		{
@@ -5520,6 +5713,14 @@ class wr_Rig : EventHandler
 
 				mSubFlipCard = hitSub;
 				mFlipTics    = CLOSE_TICS;
+
+				// Same remembering as the main-card branch -- a subcard's
+				// slot is its fanned-open parent's slot, mExpanded.
+				if (mExpanded >= 0 && mExpanded < mCardSlots.Size())
+				{
+					int pickedSlot = mCardSlots[mExpanded];
+					if (pickedSlot >= 0 && pickedSlot < 10) mLastPicked[pickedSlot] = want;
+				}
 			}
 		}
 

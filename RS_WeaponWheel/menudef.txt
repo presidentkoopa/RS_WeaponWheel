@@ -19,6 +19,7 @@ OptionMenu wr_Options
 	StaticText "Behaviour", gold
 	Option "Open at level start",       "wr_autoopen",     "OnOff"
 	Slider "Seconds before it folds",   "wr_locktics",     35, 700, 35, 0
+	Slider "Warning before it folds (0 = off)", "wr_warn_tics", 0, 105, 35, 0
 
 	StaticText ""
 	StaticText "Size", gold
@@ -200,6 +201,15 @@ OptionMenu wr_Options
 	// meant and there is no handedness setting to get wrong.
 	Control "Off hand wheel",           "wr_toggle_off"
 	Control "Main hand wheel",          "wr_toggle_main"
+	// Both binds still work as their own keys once a ring is open --
+	// this only decides which hand an EMPTY-handed press opens on, for
+	// a player who always means the same one regardless of which key
+	// they actually reached for.
+	Option "Always open on",            "wr_toggle_prefer_hand", "wr_ToggleHandPref"
+	// Pressing the same hand's key again just after opening recenters the
+	// ring on your hand instead of closing it -- 0 turns this off, the key
+	// always closes.
+	Slider "Recenter window, tics (0 = off)", "wr_recenter_window", 0, 35, 5, 1
 
 	StaticText ""
 	StaticText "Troubleshooting", gold
@@ -310,4 +320,11 @@ OptionValue wr_RollSign
 {
 	1,  "Forward"
 	-1, "Reversed"
+}
+
+OptionValue wr_ToggleHandPref
+{
+	-1, "Whichever bind you press"
+	0,  "Main hand"
+	1,  "Off hand"
 }
