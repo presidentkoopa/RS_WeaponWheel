@@ -1948,10 +1948,23 @@ class wr_Rig : EventHandler
 		int n = mIds.Size();
 		if (n == 0) return 0;
 
-		double sx = players[consoleplayer].cmd.sidemove;
-		double sy = players[consoleplayer].cmd.forwardmove;
+		// GetRawStickMove(), not cmd.sidemove/forwardmove. Those fields are
+		// zeroed at the source by the same SuppressVRInput(true) openRig()
+		// calls to stop the stick also walking and turning the player --
+		// which meant stick-select was reading a channel this ring had
+		// itself just cut off, and returned 0 every tic for as long as the
+		// ring was open. GetRawStickMove reads the locomotion stick BEFORE
+		// that suppression point, so it still reports real deflection.
+		//
+		// -1..1, not cmd's old thousands-scale ticcmd units -- the engine
+		// already applies its own 0.15 deadzone and a curve before this
+		// value ever reaches script, so wr_stickdead only needs to add
+		// margin on top of that, not define the deadzone from scratch.
+		Vector2 stick = level.GetRawStickMove();
+		double sx = stick.Y;
+		double sy = stick.X;
 
-		double dead = cv("wr_stickdead", 3000.0);
+		double dead = cv("wr_stickdead", 0.2);
 		if (sx * sx + sy * sy < dead * dead) return 0;
 
 		double want = atan2(sy, sx);

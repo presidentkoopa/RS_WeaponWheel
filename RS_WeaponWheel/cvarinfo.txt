@@ -66,7 +66,12 @@ user bool  wr_bullettime = true;
 
 // How far the stick must leave centre before it picks a slot. UserCmd units:
 // a walk is about 6400.
-user float wr_stickdead  = 3000.0;
+// -1..1 scale, not the old thousands-scale ticcmd units -- stickPick() now
+// reads GetRawStickMove() (a normalized stick axis), not cmd.sidemove/
+// forwardmove. The engine already applies its own 0.15 deadzone before
+// script sees this value, so 0.2 is a small margin on top of that, not the
+// deadzone itself.
+user float wr_stickdead  = 0.2;
 
 
 // How much the hovered card breathes. 0 holds it still.

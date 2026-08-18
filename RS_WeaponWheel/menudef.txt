@@ -187,7 +187,7 @@ OptionMenu wr_Options
 	// 0 turns reaching off and leaves the beam as the only way in. Drop
 	// wr_forward toward 0 to bring the ring into actual arm reach.
 	Slider "Reach-in radius (0 = off)", "wr_touch",        0.0, 20.0, 0.5, 1
-	Slider "Stick deadzone",            "wr_stickdead",    500, 10000, 250, 0
+	Slider "Stick deadzone",            "wr_stickdead",    0.05, 0.9, 0.05, 1
 
 	StaticText ""
 	StaticText "Integration", gold
