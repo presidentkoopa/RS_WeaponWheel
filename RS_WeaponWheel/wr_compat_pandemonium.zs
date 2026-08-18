@@ -46,7 +46,12 @@ class wr_CompatPandemonium
 		int cur, max;
 		if (!active(w)) return false, 0, 0;
 		if (!level.GetFieldInt(w, "curaugs", cur)) return false, 0, 0;
-		level.GetFieldInt(w, "maxaugs", max);
+		// Checked, not just read -- an unchecked failure here left max at
+		// its zero-initializer while still returning found=true, which
+		// could show a nonsense "5/0" instead of the honest "couldn't read
+		// this" every other failure in this file already signals with
+		// found=false.
+		if (!level.GetFieldInt(w, "maxaugs", max)) return false, 0, 0;
 		return true, cur, max;
 	}
 
@@ -97,9 +102,17 @@ class wr_CompatPandemonium
 		if (!active(w) || !level.GetFieldBool(w, "dwep", hasI) || hasI == 0) return false, 0, 0, false;
 
 		int cur, max, brokenI;
-		level.GetFieldInt(w, "durability", cur);
-		level.GetFieldInt(w, "dmax", max);
-		level.GetFieldBool(w, "dbroken", brokenI);
+		// All three checked -- the gate above (hasI) only confirms this
+		// weapon OPTS IN to durability, not that these three specific
+		// fields still exist under these names. Discarding the bool
+		// return left cur/max/brokenI at their zero-initializers on a
+		// failed read while still answering found=true -- a fabricated
+		// "0/0, broken" that reads to a player as "this weapon is
+		// destroyed" when the real state is "couldn't be read." A future
+		// Insurrection rename should show as unreadable, not as damage.
+		if (!level.GetFieldInt(w, "durability", cur)) return false, 0, 0, false;
+		if (!level.GetFieldInt(w, "dmax", max)) return false, 0, 0, false;
+		if (!level.GetFieldBool(w, "dbroken", brokenI)) return false, 0, 0, false;
 		return true, cur, max, brokenI != 0;
 	}
 
@@ -112,7 +125,7 @@ class wr_CompatPandemonium
 	{
 		int gotI; string txt;
 		if (!active(w) || !level.GetFieldBool(w, "gotsupped", gotI) || gotI == 0) return false, "";
-		level.GetFieldString(w, "sup_string", txt);
+		if (!level.GetFieldString(w, "sup_string", txt)) return false, "";
 		return true, txt;
 	}
 }

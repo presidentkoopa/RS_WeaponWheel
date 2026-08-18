@@ -554,7 +554,19 @@ class wr_Rig : EventHandler
 		mFlipCard  = -1;
 		mSubFlipCard = -1;
 		mFlipTics  = 0;
+		// Same guard idiom as wr_forward: an unset or fat-fingered value
+		// resets to the shipped default rather than doing something with 0
+		// or negative. Unguarded, 0 (or less) made WorldTick's
+		// --mLockTics <= 0 check true on the very first tic, so the ring
+		// flashed open and immediately auto-closed on every single summon
+		// -- indistinguishable from the mod being completely broken, and a
+		// player reasonably expecting "0 = no idle-close timer" got
+		// exactly the opposite. The idle-close is a deliberate safety
+		// feature (see the comment at its own check site, WorldTick) --
+		// giving 0 a real "never expire" meaning would be removing that
+		// safety net by config typo, so this floors instead of disabling.
 		mLockTics  = int(cv("wr_locktics", 140));
+		if (mLockTics <= 0) mLockTics = 140;
 		mDebugPainted = false;
 
 
@@ -3576,6 +3588,14 @@ class wr_Rig : EventHandler
 			Vector3 handP = handPos(pmo, mRigHand);
 
 			double clearForward = wantForward;
+			// The SECTOR AT THE TRACE'S OWN START, not the player's. handP
+			// can sit well away from pmo.Pos -- 20+ units even outside real
+			// VR tracking -- and Trace() uses whatever sector it's handed
+			// for the initial floor/ceiling/3D-floor plane tests before any
+			// line is crossed. Near a doorway or a 3D-floor edge with a
+			// different floor/ceiling height, pmo's own sector could answer
+			// a question the trace never actually asked.
+			Sector handSector = level.PointInSector((handP.X, handP.Y));
 			let tracer = new("LineTracer");
 			// ignoreAllActors: true -- this is a WALL check. Left at its
 			// default false, the trace's actor mask is 0xFFFFFFFF (match
@@ -3600,7 +3620,7 @@ class wr_Rig : EventHandler
 			// portal instead, which the existing pull-in below already
 			// treats correctly -- a portal boundary is exactly the kind of
 			// thing the ring should not be planted through.
-			if (tracer.Trace(handP, pmo.CurSector, ahead, wantForward,
+			if (tracer.Trace(handP, handSector, ahead, wantForward,
 				TRACE_NoSky | TRACE_PortalRestrict, 0xFFFFFFFF, true))
 			{
 				// Pulled in short of the hit, not onto it, so the ring's
@@ -3632,14 +3652,15 @@ class wr_Rig : EventHandler
 			Vector3 sideDir = (-sin(mAnchorYaw), cos(mAnchorYaw), 0);
 			double sideMax = 60.0;
 			mMaxRingR = 0.0;
+			Sector anchorSector = level.PointInSector((mAnchor.X, mAnchor.Y));
 			let sideTracer = new("LineTracer");
-			if (sideTracer.Trace(mAnchor, pmo.CurSector, sideDir, sideMax,
+			if (sideTracer.Trace(mAnchor, anchorSector, sideDir, sideMax,
 				TRACE_NoSky | TRACE_PortalRestrict, 0xFFFFFFFF, true))
 			{
 				mMaxRingR = sideTracer.Results.Distance;
 			}
 			let sideTracer2 = new("LineTracer");
-			if (sideTracer2.Trace(mAnchor, pmo.CurSector, (0,0,0) - sideDir, sideMax,
+			if (sideTracer2.Trace(mAnchor, anchorSector, (0,0,0) - sideDir, sideMax,
 				TRACE_NoSky | TRACE_PortalRestrict, 0xFFFFFFFF, true))
 			{
 				double d = sideTracer2.Results.Distance;
@@ -5269,7 +5290,11 @@ class wr_Rig : EventHandler
 
 		mHovered   = hit;
 		mHoverTics = 0;
-		if (hit != 0) mLockTics = int(cv("wr_locktics", 140));
+		if (hit != 0)
+		{
+			mLockTics = int(cv("wr_locktics", 140));
+			if (mLockTics <= 0) mLockTics = 140;
+		}
 	}
 
 	// Straight into the hand, no lower and no raise.
