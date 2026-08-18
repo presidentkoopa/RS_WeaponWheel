@@ -3525,7 +3525,35 @@ class wr_Rig : EventHandler
 			double cp = cos(aimP);
 			Vector3 ahead = (cp * cos(aimY), cp * sin(aimY), sin(aimP));
 
-			mAnchor     = handPos(pmo, mRigHand) + ahead * cv("wr_forward", 34.0);
+			// DON'T OPEN THE RING INSIDE A WALL. wr_forward is a distance
+			// tuned in the open -- point your hand at a wall closer than
+			// that (a corner, a low corridor, a locker room) and the ring
+			// used to plant its centre past the wall's own face, so half
+			// of it rendered on the far side of geometry the player can
+			// never see through. Checked ONCE here, at the same moment
+			// the anchor itself freezes (mHaveAnchor), not every tic --
+			// the facing-lock fix on the token card tonight is the same
+			// lesson: a live geometry re-check every tic would fight the
+			// player's hand for the ring's position exactly the way live
+			// re-facing fought their head.
+			double wantForward = cv("wr_forward", 34.0);
+			Vector3 handP = handPos(pmo, mRigHand);
+
+			double clearForward = wantForward;
+			let tracer = new("LineTracer");
+			if (tracer.Trace(handP, pmo.CurSector, ahead, wantForward,
+				TRACE_NoSky))
+			{
+				// Pulled in short of the hit, not onto it, so the ring's
+				// own plates (which have real thickness once drawn) don't
+				// immediately re-clip the same wall they were pulled back
+				// from. Floored well above zero -- a wall right in the
+				// player's face still gets a ring, just a close one,
+				// rather than one collapsed into their hand.
+				clearForward = max(wantForward * 0.35, tracer.Results.Distance - 6.0);
+			}
+
+			mAnchor     = handP + ahead * clearForward;
 			mAnchorYaw  = pmo.angle;
 			mHaveAnchor = true;
 		}
