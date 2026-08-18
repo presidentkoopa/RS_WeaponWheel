@@ -258,9 +258,19 @@ class wr_GunTag : EventHandler
 		return (hand == 1) ? p.OffhandWeapon : p.ReadyWeapon;
 	}
 
+	// Ammo2 is overloaded -- a magazine's loaded rounds on one weapon, a
+	// genuinely separate alt-fire pool on another (zscript.zs's own
+	// hasMagazine, ~line 2415, has the full note). This copy never got
+	// the alt-fire exclusion that one did, so a Rockets/Grenades-style
+	// weapon (Ammo1 for the primary, a distinct Ammo2 for the alt) read
+	// its alt-fire reserve as the gun's own magazine here -- showing the
+	// grenade count as the headline number and flagging the weapon dry
+	// at 0 grenades while it was still fully loaded.
 	private static bool hasMagazine(Weapon w)
 	{
-		return w != null && w.Ammo2 != null && w.Ammo2 != w.Ammo1;
+		if (w == null || w.Ammo2 == null || w.Ammo2 == w.Ammo1) return false;
+		if (w.FindState('AltFire') != null) return false;
+		return true;
 	}
 
 	// What the counter says.

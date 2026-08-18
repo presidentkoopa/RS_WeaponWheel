@@ -3537,12 +3537,29 @@ class wr_Rig : EventHandler
 			// player's hand for the ring's position exactly the way live
 			// re-facing fought their head.
 			double wantForward = cv("wr_forward", 34.0);
+			// Same guard idiom as radius/panelW/panelH below: an unset or
+			// fat-fingered cvar resets to the shipped default rather than
+			// doing something with 0 or a negative number. Unguarded, 0
+			// collapsed the ring into the fist -- the exact failure this
+			// whole block exists to prevent, just uncovered here -- and a
+			// negative value put the anchor behind the player, inside
+			// their own body, for the rest of the session.
+			if (wantForward < 0.5) wantForward = 34.0;
 			Vector3 handP = handPos(pmo, mRigHand);
 
 			double clearForward = wantForward;
 			let tracer = new("LineTracer");
+			// ignoreAllActors: true -- this is a WALL check. Left at its
+			// default false, the trace's actor mask is 0xFFFFFFFF (match
+			// anything) with no SOLID filter underneath, so a monster, a
+			// corpse, or a dropped pickup within wr_forward reported a hit
+			// exactly like a wall. Because the anchor freezes once per
+			// ring-open and is never rechecked, that pull-in used to
+			// outlive the actor that caused it -- the ring stayed clamped
+			// close for the rest of the session even after the monster
+			// walked off, died, or the item was picked up.
 			if (tracer.Trace(handP, pmo.CurSector, ahead, wantForward,
-				TRACE_NoSky))
+				TRACE_NoSky, 0xFFFFFFFF, true))
 			{
 				// Pulled in short of the hit, not onto it, so the ring's
 				// own plates (which have real thickness once drawn) don't
