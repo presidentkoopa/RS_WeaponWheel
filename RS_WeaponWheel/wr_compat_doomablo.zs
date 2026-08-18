@@ -65,6 +65,20 @@ class wr_CompatDoomablo
 		int rarity;
 		if (!w || cv("wr_dbl_compat", 1.0) <= 0.0) return false, 0;
 		if (!level.GetFieldInt(w, "generatedRarity", rarity)) return false, 0;
+
+		// Range-checked against the seven tiers this file actually knows
+		// about (README lists six; adding_new_uniques.txt's Unique is the
+		// seventh, see the file header). RarityWord()/RarityColor()'s own
+		// switches fall through anything unrecognized to COMMON/white with
+		// no other signal -- so an unranged value here reads to the player
+		// as a confident "this is Common", indistinguishable from a
+		// genuine Common roll, rather than as what it actually is: a tier
+		// number this file was never taught. A future Doomablo release
+		// adding an 8th tier should show as unreadable, the same honest
+		// "false" every other unrecognized read in this file already
+		// returns, not as its own lowest rarity.
+		if (rarity < DBL_COMMON || rarity > DBL_UNIQUE) return false, 0;
+
 		return true, rarity;
 	}
 

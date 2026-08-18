@@ -54,6 +54,26 @@ class wr_CompatDRLA
 		return c ? c.GetFloat() : fallback;
 	}
 
+	// Same stripping logic as the ring's own familyRoot() (zscript.zs) and
+	// wr_compat_legendoom.zs's own copy -- duplicated per file on purpose,
+	// see that file's note.
+	//
+	// DRLA only ever registers "<Class>Pickup" for class names it actually
+	// owns, never for a third-party mod's numbered dual-wield clones. A
+	// dual-wielded Advanced Pistol is legitimately "RLAdvancedPistol_2"
+	// under this ring's own convention, and Object.FindClass on
+	// "RLAdvancedPistol_2Pickup" finds nothing -- the clone's card silently
+	// showed no tier at all.
+	private static string familyRoot(string name)
+	{
+		int n = name.Length();
+		if (n < 3) return name;
+		int last = name.ByteAt(n - 1);
+		if (name.ByteAt(n - 2) != 0x5F) return name;   // '_'
+		if (last < 0x32 || last > 0x39) return name;   // '2'..'9'
+		return name.Left(n - 2);
+	}
+
 	// FOUND, TIER. Checked highest to lowest only because that reads best;
 	// unlike LegenDoom's markers a weapon cannot possibly match more than
 	// one of these, they are mutually exclusive ancestors.
@@ -62,7 +82,7 @@ class wr_CompatDRLA
 		int none;
 		if (!w || cv("wr_drla_compat", 1.0) <= 0.0) return false, none;
 
-		class<Object> cls = (class<Object>)(Object.FindClass(Name(("" .. w.GetClassName()) .. "Pickup")));
+		class<Object> cls = (class<Object>)(Object.FindClass(Name(familyRoot("" .. w.GetClassName()) .. "Pickup")));
 
 		// Capped rather than walked to the root unconditionally -- a
 		// defensive bound, not an expected case. DRLA's own hierarchy
@@ -156,7 +176,7 @@ class wr_CompatDRLA
 	{
 		if (!w || cv("wr_drla_compat", 1.0) <= 0.0 || cv("wr_drla_mods", 1.0) <= 0.0) return 0, 0;
 
-		string base = "" .. w.GetClassName();
+		string base = familyRoot("" .. w.GetClassName());
 		int mask = 0, mask2 = 0;
 		for (Inventory it = w.Inv; it; it = it.Inv)
 		{

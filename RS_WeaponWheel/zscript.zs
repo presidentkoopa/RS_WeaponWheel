@@ -344,6 +344,12 @@ class wr_Rig : EventHandler
 	Vector3 mAnchor;              // the ring centre, out in front of the hand
 	double  mAnchorYaw;
 	bool    mHaveAnchor;
+	// A ceiling on ringR (below), set once alongside mAnchor from side
+	// traces the forward-only wall check can't see -- a wall to the
+	// player's LEFT or RIGHT of where the ring opened. 0 means "no cap
+	// found," not "collapse to zero"; ringR only ever shrinks toward this
+	// value, never grows past its own count-driven sizing because of it.
+	double  mMaxRingR;
 	// The ring's ACTUAL current radius, written once per layout() pass --
 	// see the note there ("Ring radius grows with the count so the cards
 	// never crowd"). RingClearance() reads this instead of wr_radius
@@ -2081,6 +2087,16 @@ class wr_Rig : EventHandler
 		// side. Outward IS the free space, so a fan can never cross a neighbour.
 		Vector3 lift = (cos(faceYaw), sin(faceYaw), 0) * LABEL_LIFT;
 
+		// Same fix as the main ring's layout() loop: none of these vary per
+		// subcard within a single tic, so hoisting them out of the loop
+		// below turns N re-reads (plus wr_glow's own double-read, once for
+		// the plate and once for the label) into one.
+		double hSubDim        = cv("wr_dim", 0.55);
+		double hSubFlip       = cv("wr_flip", 360.0);
+		double hSubShadowOff  = cv("wr_shadow_offset", 0.35) * cv("wr_scale", 1.0) * 0.55;
+		double hSubShadow     = clamp(cv("wr_shadow", 0.5), 0.0, 1.0);
+		double hSubGlow       = cv("wr_glow", 1.0);
+
 		for (int i = 0; i < mSubIds.Size(); ++i)
 		{
 			// Which ring out, and which of the three bearings on it.
@@ -2150,7 +2166,7 @@ class wr_Rig : EventHandler
 			}
 
 			double subAlpha = 1.0;
-			if (mHovered != 0 && !slit) subAlpha = clamp(cv("wr_dim", 0.55), 0.05, 1.0);
+			if (mHovered != 0 && !slit) subAlpha = clamp(hSubDim, 0.05, 1.0);
 
 			// The take-confirmation flip. mSubFlipCard is commit()'s own
 			// field, separate from mFlipCard -- a main card and a sub-card
@@ -2162,7 +2178,7 @@ class wr_Rig : EventHandler
 			if (i == mSubFlipCard && mFlipTics > 0 && CLOSE_TICS > 0)
 			{
 				double ft = 1.0 - (double(mFlipTics) / CLOSE_TICS);
-				subRoll += (1.0 - (1.0 - ft) * (1.0 - ft)) * cv("wr_flip", 360.0);
+				subRoll += (1.0 - (1.0 - ft) * (1.0 - ft)) * hSubFlip;
 			}
 
 			// THE SHADOW. wr_shadow_offset scaled to about half main's --
@@ -2173,7 +2189,7 @@ class wr_Rig : EventHandler
 			// them off each other.
 			if (i < mSubShadows.Size() && mSubShadows[i] != 0)
 			{
-				double sso = cv("wr_shadow_offset", 0.35) * cv("wr_scale", 1.0) * 0.55;
+				double sso = hSubShadowOff;
 
 				level.MoveBillboard(mSubShadows[i],
 					pos - lift * 0.6 + viewRight * sso - (0, 0, sso));
@@ -2181,8 +2197,7 @@ class wr_Rig : EventHandler
 				                                      panelH * spulse * 1.06);
 				level.OrientBillboard(mSubShadows[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
 				level.RollBillboard(mSubShadows[i], subRoll);
-				level.SetBillboardAlpha(mSubShadows[i],
-					clamp(cv("wr_shadow", 0.5), 0.0, 1.0) * subAlpha);
+				level.SetBillboardAlpha(mSubShadows[i], hSubShadow * subAlpha);
 			}
 
 			level.MoveBillboard(mSubIds[i], pos);
@@ -2193,7 +2208,7 @@ class wr_Rig : EventHandler
 			// THE PLATE GLOWS. Same call, same defaults as a main card's --
 			// on BB_PANEL (wr_sdf off) the engine ignores it, so this needs
 			// no branch for that case either.
-			double sg = cv("wr_glow", 1.0);
+			double sg = hSubGlow;
 			level.SetBillboardGlow(mSubIds[i], slit ? clamp(GLOW_R * sg, 0.0, 1.0) : 0.0,
 			                                   slit ? GLOW_S * sg : 0.0);
 
@@ -2231,7 +2246,7 @@ class wr_Rig : EventHandler
 				// glow (both cv("wr_glow", 1.0)) -- this line previously read
 				// 1.6, a mismatch that only mattered if the cvar were ever
 				// missing from a config, which it never validly is.
-				double slg = cv("wr_glow", 1.0);
+				double slg = hSubGlow;
 				level.SetBillboardGlow(mSubLabels[i], slit ? clamp(GLOW_R * slg, 0.0, 1.0) : 0.0,
 				                                      slit ? GLOW_S * slg : 0.0);
 			}
@@ -3571,8 +3586,22 @@ class wr_Rig : EventHandler
 			// outlive the actor that caused it -- the ring stayed clamped
 			// close for the rest of the session even after the monster
 			// walked off, died, or the item was picked up.
+			//
+			// TRACE_PortalRestrict -- without it the trace silently crosses
+			// a sector/line portal (a mirror, a window, a linked hallway)
+			// and keeps going in the DESTINATION room's frame, which can be
+			// rotated and offset from this one. clearForward below is a
+			// plain scalar walked forward from handP in THIS room -- it has
+			// no idea the trace ever left it -- so a portal within
+			// wr_forward used to report a "wall" that was really on the far
+			// side of the portal, and the ring still got planted straight
+			// ahead in the near room, unrelated to whatever the trace
+			// actually hit. Restricted, the trace simply stops AT the
+			// portal instead, which the existing pull-in below already
+			// treats correctly -- a portal boundary is exactly the kind of
+			// thing the ring should not be planted through.
 			if (tracer.Trace(handP, pmo.CurSector, ahead, wantForward,
-				TRACE_NoSky, 0xFFFFFFFF, true))
+				TRACE_NoSky | TRACE_PortalRestrict, 0xFFFFFFFF, true))
 			{
 				// Pulled in short of the hit, not onto it, so the ring's
 				// own plates (which have real thickness once drawn) don't
@@ -3586,6 +3615,36 @@ class wr_Rig : EventHandler
 			mAnchor     = handP + ahead * clearForward;
 			mAnchorYaw  = pmo.angle;
 			mHaveAnchor = true;
+
+			// A wall the FORWARD ray can't see: one straight ahead of the
+			// hand says nothing about a corner immediately to the player's
+			// left or right, and the ring is a wide GRID (see ringR below),
+			// not a point -- most of it lives off to the sides of mAnchor,
+			// not in front of it. Two more rays, once, from the now-frozen
+			// centre, cap how far ringR is later allowed to grow instead of
+			// repositioning anything -- a size ceiling can't fight the
+			// player's hand the way moving mAnchor live would, since the
+			// space around a stationary anchor doesn't change tic to tic.
+			// Vertical is NOT checked here -- a low ceiling or a step can
+			// still clip the grid. Left/right covers the failure this was
+			// actually reported for; treat this as a partial fix, not full
+			// geometry awareness.
+			Vector3 sideDir = (-sin(mAnchorYaw), cos(mAnchorYaw), 0);
+			double sideMax = 60.0;
+			mMaxRingR = 0.0;
+			let sideTracer = new("LineTracer");
+			if (sideTracer.Trace(mAnchor, pmo.CurSector, sideDir, sideMax,
+				TRACE_NoSky | TRACE_PortalRestrict, 0xFFFFFFFF, true))
+			{
+				mMaxRingR = sideTracer.Results.Distance;
+			}
+			let sideTracer2 = new("LineTracer");
+			if (sideTracer2.Trace(mAnchor, pmo.CurSector, (0,0,0) - sideDir, sideMax,
+				TRACE_NoSky | TRACE_PortalRestrict, 0xFFFFFFFF, true))
+			{
+				double d = sideTracer2.Results.Distance;
+				if (mMaxRingR <= 0.0 || d < mMaxRingR) mMaxRingR = d;
+			}
 		}
 
 		Vector3 wrist = mAnchor;
@@ -3680,6 +3739,16 @@ class wr_Rig : EventHandler
 			if (sheetR > ringR) ringR = sheetR;
 		}
 
+		// The side-trace ceiling from anchor-freeze, above. Applied LAST,
+		// after the count-driven growth and the sheet's own floor, so it is
+		// a genuine ceiling on the final answer rather than one more input
+		// those can grow past. In a space too tight even for the sheet,
+		// this wins anyway -- a ring sized smaller than it would like beats
+		// one whose cards clip through the wall that caused this check to
+		// exist. mMaxRingR of 0 means no wall was found in either
+		// direction, so nothing is capped.
+		if (mMaxRingR > 0.0 && ringR > mMaxRingR) ringR = mMaxRingR;
+
 		// Published for RingClearance() -- anything parking beside the
 		// ring needs the count-grown extent, not the tuned base value.
 		mLastRingR = ringR;
@@ -3737,6 +3806,23 @@ class wr_Rig : EventHandler
 		               * cv("wr_idle", 0.35) * sc;
 
 		Vector3 origin = wrist + (0, 0, rise + breathe);
+
+		// Hoisted out of the per-card loop below. None of these vary by
+		// card within a single tic -- sc/radius/rise/tilt/panelW/panelH
+		// above already got this treatment; these did not, so a full ring
+		// re-read every one of them, by string, once per card, every tic.
+		// wr_glow specifically was read TWICE per card on top of that (once
+		// for the plate's halo, once for the label's) at the identical
+		// value both times.
+		double hDim         = cv("wr_dim", 0.55);
+		double hFlip        = cv("wr_flip", 360.0);
+		double hShadowOff   = cv("wr_shadow_offset", 0.35) * sc;
+		double hShadow      = clamp(cv("wr_shadow", 0.5), 0.0, 1.0);
+		double hModelScale  = cv("wr_model_scale", 0.16);
+		double hModelLift   = cv("wr_model_lift", 3.0);
+		double hGlow        = cv("wr_glow", 1.0);
+		double hShimmer     = cv("wr_shimmer", 0.0);
+		double hParallax    = cv("wr_parallax", 0.06);
 
 		for (int i = 0; i < n; ++i)
 		{
@@ -3803,7 +3889,7 @@ class wr_Rig : EventHandler
 			if (i == mFlipCard && mFlipTics > 0 && CLOSE_TICS > 0)
 			{
 				double ft = 1.0 - (double(mFlipTics) / CLOSE_TICS);
-				roll += (1.0 - (1.0 - ft) * (1.0 - ft)) * cv("wr_flip", 360.0);
+				roll += (1.0 - (1.0 - ft) * (1.0 - ft)) * hFlip;
 			}
 
 			if (i < mCardX.Size()) { mCardX[i] = pos.X; mCardY[i] = pos.Y; mCardZ[i] = pos.Z; }
@@ -3861,7 +3947,7 @@ class wr_Rig : EventHandler
 			// first time: it was written next to the position bookkeeping at the
 			// top of the loop, forty lines before either of them exists.
 			double cardAlpha = 1.0;
-			if (mHovered != 0 && !lit) cardAlpha = clamp(cv("wr_dim", 0.55), 0.05, 1.0);
+			if (mHovered != 0 && !lit) cardAlpha = clamp(hDim, 0.05, 1.0);
 
 			// The shadow sits BEHIND the plate -- pushed away from the viewer
 			// rather than toward them -- and offset down and to the side so it
@@ -3869,7 +3955,7 @@ class wr_Rig : EventHandler
 			// the same amount it is offset, so it shows on every edge.
 			if (i < mShadows.Size() && mShadows[i] != 0)
 			{
-				double so = cv("wr_shadow_offset", 0.35) * cv("wr_scale", 1.0);
+				double so = hShadowOff;
 
 				level.MoveBillboard(mShadows[i],
 					pos - lift * 0.6 + viewRight * so - (0, 0, so));
@@ -3877,8 +3963,7 @@ class wr_Rig : EventHandler
 				                                   panelH * pulse * 1.06);
 				level.OrientBillboard(mShadows[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
 				level.RollBillboard(mShadows[i], roll);
-				level.SetBillboardAlpha(mShadows[i],
-					clamp(cv("wr_shadow", 0.5), 0.0, 1.0) * cardAlpha);
+				level.SetBillboardAlpha(mShadows[i], hShadow * cardAlpha);
 			}
 
 			// Bottom-left, opposite the held marker, so the two never collide.
@@ -3927,11 +4012,11 @@ class wr_Rig : EventHandler
 			// the same fade as everything else on the card.
 			if (i < mModels.Size() && mModels[i] != null)
 			{
-				double ms = cv("wr_model_scale", 0.16) * pulse;
+				double ms = hModelScale * pulse;
 
 				// Through a local: SetOrigin wants a modifiable value and an
 				// expression is not one.
-				Vector3 mp = pos + lift * cv("wr_model_lift", 3.0);
+				Vector3 mp = pos + lift * hModelLift;
 				mModels[i].SetOrigin(mp, true);
 				mModels[i].Scale = (ms, ms);
 				mModels[i].A_SetRenderStyle(cardAlpha, STYLE_Translucent);
@@ -3964,7 +4049,7 @@ class wr_Rig : EventHandler
 				// and a sampled texture has nothing out there to read. On
 				// BB_PANEL the call is simply ignored, so the switch needs no
 				// branch here.
-				double g = cv("wr_glow", 1.0);
+				double g = hGlow;
 
 				// AMBIENT SHIMMER, off the same halo -- a slow, low breathe on
 				// every UNHOVERED card, using the card's own colour (the plate
@@ -3976,7 +4061,7 @@ class wr_Rig : EventHandler
 				// reads as unmistakably "this one". Plate only, not the label:
 				// the label's own halo is reserved for hover so the name stays
 				// the clean, unambiguous "which one" signal it always was.
-				double shimmerAmt = cv("wr_shimmer", 0.0);
+				double shimmerAmt = hShimmer;
 				double shimmerFrac = 0.5 + 0.5 * sin(level.maptime * SHIMMER_SPEED + i * SHIMMER_PHASE);
 				double sr = shimmerAmt * shimmerFrac;
 
@@ -4009,7 +4094,7 @@ class wr_Rig : EventHandler
 			// Small on purpose -- past a few percent of the card it stops
 			// reading as depth and starts reading as the artwork being loose.
 			Vector3 par = (0, 0, 0);
-			double px = cv("wr_parallax", 0.06);
+			double px = hParallax;
 			if (px > 0.0)
 			{
 				Vector3 toEye = eye - pos;
@@ -4060,7 +4145,7 @@ class wr_Rig : EventHandler
 
 				// Neon, and only on the one you are pointing at. A halo on every
 				// card is a blur; a halo on one is the answer to "which".
-				double lg = cv("wr_glow", 1.0);
+				double lg = hGlow;
 				level.SetBillboardGlow(mLabels[i], lit ? clamp(GLOW_R * lg, 0.0, 1.0) : 0.0,
 				                                   lit ? GLOW_S * lg : 0.0);
 			}
@@ -4208,7 +4293,32 @@ class wr_Rig : EventHandler
 
 		// The fold-away outlives the rig being open, so it is ticked down before
 		// the early-out rather than after it.
-		if (mFlipTics > 0) --mFlipTics;
+		//
+		// TICKED DOWN HERE, but until now never actually APPLIED here. The
+		// roll itself was only ever computed and RollBillboard'd inside
+		// layout()/layoutExpansion()'s per-card loops -- both gated on
+		// mOpen, which commit() has already set false by the time either
+		// could run again (closeRig(true), called synchronously right
+		// after mFlipCard/mFlipTics are armed, takes the deferred branch
+		// and clears mOpen before returning). So the countdown counted
+		// down correctly the whole time; the spin it was supposed to
+		// drive just never got a single frame to draw. wr_flip has had a
+		// working menu slider for a mechanic that could not render.
+		//
+		// Applied directly here instead of trying to keep layout() alive
+		// past mOpen -- that function does a full per-card pass for a
+		// ring that is otherwise finished, for the sake of one already-
+		// identified card. Same easing curve layout() itself uses.
+		if (mFlipTics > 0)
+		{
+			--mFlipTics;
+			double ft = 1.0 - (double(mFlipTics) / CLOSE_TICS);
+			double flipRoll = (1.0 - (1.0 - ft) * (1.0 - ft)) * cv("wr_flip", 360.0);
+			if (mFlipCard >= 0 && mFlipCard < mIds.Size())
+				level.RollBillboard(mIds[mFlipCard], flipRoll);
+			else if (mSubFlipCard >= 0 && mSubFlipCard < mSubIds.Size())
+				level.RollBillboard(mSubIds[mSubFlipCard], flipRoll);
+		}
 		if (mClosingTics > 0 && --mClosingTics <= 0) destroyPanels();
 
 		if (!mOpen) return;

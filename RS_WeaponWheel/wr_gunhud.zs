@@ -40,6 +40,14 @@ class wr_GunTag : EventHandler
 	private string mTagText[2];
 	private Class<Weapon> mTagFor[2];
 	private bool   mTagDry[2];
+	// wr_gun_color/wr_gun_dry (hue) and wr_gun_lcd (payload shape) go into
+	// AddBillboardPersistent at creation and never get revisited, same as
+	// mTagFor/mTagDry -- but neither WAS in the rebuild gate, so toggling
+	// either at the console did nothing until the next weapon swap or dry
+	// flip happened to also rebuild the billboard. Tracked here so the
+	// gate below can actually see a live change.
+	private color  mTagHue[2];
+	private int    mTagPayload[2];
 	private int    mDebugTics[2];   // wr_debug heartbeat, one per hand
 
 	// Placement mode.
@@ -301,6 +309,8 @@ class wr_GunTag : EventHandler
 		mTagText[hand] = "";
 		mTagFor[hand]  = null;
 		mTagDry[hand]  = false;
+		mTagHue[hand]     = 0;
+		mTagPayload[hand] = 0;
 	}
 
 	private void updateTag(PlayerPawn pmo, int hand)
@@ -383,12 +393,16 @@ class wr_GunTag : EventHandler
 		int payload = (cv("wr_gun_lcd", 0.0) > 0.0) ? LevelLocals.BB_SEGLCD
 		                                            : LevelLocals.BB_SEGMENT;
 
-		// Rebuilt when the WEAPON changes, or when dry-vs-loaded flips --
-		// colour has no setter, so a colour change needs a new billboard.
-		// NOT rebuilt when only the number changes, or a counter that
-		// destroyed and respawned itself every shot would restart its own
-		// reveal animation on every trigger pull.
-		if (mTagId[hand] == 0 || mTagFor[hand] != w.GetClass() || mTagDry[hand] != dry)
+		// Rebuilt when the WEAPON changes, when dry-vs-loaded flips, or when
+		// the hue or the payload shape (wr_gun_color/wr_gun_dry/wr_gun_lcd)
+		// no longer match what this billboard was actually built with --
+		// colour has no setter, so a colour change needs a new billboard,
+		// and BB_SEGMENT/BB_SEGLCD are two different payloads, not a flag
+		// on one. NOT rebuilt when only the number changes, or a counter
+		// that destroyed and respawned itself every shot would restart its
+		// own reveal animation on every trigger pull.
+		if (mTagId[hand] == 0 || mTagFor[hand] != w.GetClass() || mTagDry[hand] != dry
+			|| mTagHue[hand] != hue || mTagPayload[hand] != payload)
 		{
 			dropTag(hand);
 			mTagId[hand] = level.AddBillboardPersistent(
@@ -408,6 +422,8 @@ class wr_GunTag : EventHandler
 			mTagFor[hand]  = w.GetClass();
 			mTagText[hand] = txt;
 			mTagDry[hand]  = dry;
+			mTagHue[hand]     = hue;
+			mTagPayload[hand] = payload;
 			level.SetBillboardProgress(mTagId[hand], 1.0);
 		}
 		else if (mTagText[hand] != txt)

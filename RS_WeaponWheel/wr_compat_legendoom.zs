@@ -53,6 +53,29 @@ class wr_CompatLegenDoom
 		return c ? c.GetFloat() : fallback;
 	}
 
+	// Same stripping logic as the ring's own familyRoot() (zscript.zs) --
+	// duplicated here rather than shared, matching this file's own
+	// existing pattern of a private cv() copy instead of a call back into
+	// the ring class, so a compat file stays a self-contained drop-in.
+	//
+	// A dual-wielded weapon is legitimately a numbered clone subclass
+	// (LDPistol_2, per the ring's own convention), but LegenDoom's Ready-
+	// state check for the rarity marker is inherited unchanged from the
+	// base class, so the marker granted on a clone is still named after
+	// the UN-suffixed base ("LDPistolLegendaryEpic"). Without stripping
+	// the suffix first, RarityOf(LDPistol_2) searched for
+	// "LDPistol_2LegendaryEpic", found nothing, and a legendary weapon's
+	// twin silently showed no rarity at all.
+	private static string familyRoot(string name)
+	{
+		int n = name.Length();
+		if (n < 3) return name;
+		int last = name.ByteAt(n - 1);
+		if (name.ByteAt(n - 2) != 0x5F) return name;   // '_'
+		if (last < 0x32 || last > 0x39) return name;   // '2'..'9'
+		return name.Left(n - 2);
+	}
+
 	// FOUND, RARITY. Order checked is Epic down to Common, matching the order
 	// LegenDoom's own Ready states check in (Pistol.dec and siblings) -- a
 	// weapon only ever carries one of the four, so the order only matters if
@@ -62,7 +85,7 @@ class wr_CompatLegenDoom
 		int none;
 		if (!w || cv("wr_ld_compat", 1.0) <= 0.0) return false, none;
 
-		string base = "" .. w.GetClassName();
+		string base = familyRoot("" .. w.GetClassName());
 		string wantEpic     = base .. "LegendaryEpic";
 		string wantRare     = base .. "LegendaryRare";
 		string wantUncommon = base .. "LegendaryUncommon";
@@ -136,7 +159,7 @@ class wr_CompatLegenDoom
 	{
 		if (!w || cv("wr_ld_compat", 1.0) <= 0.0 || cv("wr_ld_effects", 1.0) <= 0.0) return "";
 
-		string prefix = ("" .. w.GetClassName()) .. "Effect_";
+		string prefix = familyRoot("" .. w.GetClassName()) .. "Effect_";
 		int plen = int(prefix.Length());   // Length() is unsigned; see classNameHash()
 		                                    // in zscript.zs for the same cast and why.
 		string s = "";
