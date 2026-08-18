@@ -207,6 +207,12 @@ class wr_Rig : EventHandler
 	Array<double> mIconH;
 	Array<double> mLabelH;        // measured so the name fits its card
 	Array<double> mAmmoW;         // bezel width, from what the readout says
+	// True when this card's ammo is loaded but under wr_lowammo_frac --
+	// computed once at build time from the SAME ammoLoaded() call the
+	// readout itself already makes, not a fresh per-tic Weapon lookup.
+	// Read every tic by the gauge's own shimmer (layout()), never
+	// written there.
+	Array<bool> mLowAmmo;
 
 	int mOpenTics;                // drives the grow-in
 
@@ -1518,6 +1524,7 @@ class wr_Rig : EventHandler
 		mIconH.Clear();
 		mLabelH.Clear();
 		mAmmoW.Clear();
+		mLowAmmo.Clear();
 		mTypes.Clear();
 		mCardSlots.Clear();
 		mCardColor.Clear();
@@ -1854,6 +1861,26 @@ class wr_Rig : EventHandler
 		if (variants.Size() < 2) return;
 
 		mExpanded = cardIndex;
+
+		// A one-shot flash at the card that just opened, distinct from
+		// plain hover-tint -- DWELL_TO_EXPAND is fast enough that a
+		// fan popping open otherwise reads as the ring having glitched,
+		// not as something the player caused. Non-persistent with its own
+		// lifetime, not tracked in any array -- it needs no further
+		// script involvement after this call, the engine ages it out on
+		// its own (p_tick.cpp: lifetime is SECONDS, checked against
+		// spawntic/TICRATE, not tics). Sized a shade past the card itself
+		// so it reads as a burst FROM the card rather than another plate
+		// sitting on it. faceYaw matches layout()'s own formula
+		// (viewYaw + 180) since this fires before that tic's layout() has
+		// run and there is nothing else here to read it from.
+		if (cvBool("wr_flash", true))
+		{
+			level.AddBillboard(cardPos(cardIndex), panelWNow() * 1.15, panelHNow() * 1.15,
+				pmo.angle + 180, PANEL_TILT, LevelLocals.BBF_FIXED,
+				LevelLocals.BB_RING, 0, COLOR_STACK,
+				LevelLocals.BBFL_NOHIT, 0.3);
+		}
 
 		// The face weapon is already on the slot card, so the fan is everything
 		// after it.
@@ -3315,6 +3342,7 @@ class wr_Rig : EventHandler
 		mIconH.Clear();
 		mLabelH.Clear();
 		mAmmoW.Clear();
+		mLowAmmo.Clear();
 
 		double panelW = cv("wr_panel_w", 4.2) * cv("wr_scale", 1.0);
 		double panelH = cv("wr_panel_h", 3.0) * cv("wr_scale", 1.0);
@@ -3525,6 +3553,13 @@ class wr_Rig : EventHandler
 			}
 			mAmmoW.Push(aw);
 
+			// Loaded but under the low-ammo threshold. ammoLoadedFrac
+			// returns -1 for a weapon with no ammo cap at all (a fist, an
+			// infinite-ammo weapon) -- explicitly excluded, since "low" is
+			// meaningless without a ceiling to be low relative to.
+			double loadFrac = ammoLoadedFrac(held);
+			mLowAmmo.Push(rounds > 0 && loadFrac >= 0.0 && loadFrac < cv("wr_lowammo_frac", 0.25));
+
 			// THE MARKER, and it does not lock anything.
 			//
 			// Two states worth telling apart: this weapon is in the hand you are
@@ -3542,6 +3577,20 @@ class wr_Rig : EventHandler
 					LevelLocals.BBF_FIXED, plateKind(), 15,
 					(where == 2) ? COLOR_MARK_OTHER : COLOR_MARK_MINE,
 					LevelLocals.BBFL_NOHIT, 0, "");
+
+				// A STANDING GLOW, unlike every other glow on this ring --
+				// those all answer "which one is hovered" and go dark the
+				// moment you look away. This one is a fact about the card
+				// (you are already holding this), not about attention, so
+				// it does not compete with the hover halo for the same
+				// signal. Set once at creation, not per tic in the main
+				// loop -- where does not change within a card's lifetime,
+				// and on BB_PANEL (wr_sdf off) the engine ignores glow
+				// entirely, so this needs no branch either way. Distinct
+				// hue from COLOR_HOVER's gold specifically so a held
+				// weapon stays identifiable even buried in a collapsed
+				// fan, where the mark itself is small and easy to miss.
+				if (mid) level.SetBillboardGlow(mid, 0.5, 0.6);
 			}
 			mMarks.Push(mid);
 
@@ -3783,6 +3832,25 @@ class wr_Rig : EventHandler
 				// player's face still gets a ring, just a close one,
 				// rather than one collapsed into their hand.
 				clearForward = max(wantForward * 0.35, tracer.Results.Distance - 6.0);
+
+				// WALL-CLAMP TELL. wr_debug only -- this fires every time
+				// the anchor is pulled in, which is ordinary, not an
+				// error, so it does not belong on by default the way an
+				// actual fault would. Marks exactly where the trace
+				// actually hit, so it is obvious at a glance whether a
+				// pullback landed on real geometry, on an actor this
+				// trace should be ignoring (see ignoreAllActors above --
+				// if this marker keeps appearing over a monster, that is
+				// the bug, not the marker), or somewhere that makes no
+				// sense at all. Non-persistent, self-expiring -- purely a
+				// diagnostic, never a permanent fixture.
+				if (cv("wr_debug", 0.0) > 0.0)
+				{
+					level.AddBillboard(tracer.Results.HitPos, 6.0, 6.0,
+						pmo.angle + 180, 0, LevelLocals.BBF_FIXED,
+						LevelLocals.BB_SEAM, 0, color(255, 255, 200, 60),
+						LevelLocals.BBFL_NOHIT, 2.0);
+				}
 			}
 
 			mAnchor     = handP + ahead * clearForward;
@@ -3997,6 +4065,7 @@ class wr_Rig : EventHandler
 		double hGlow        = cv("wr_glow", 1.0);
 		double hShimmer     = cv("wr_shimmer", 0.0);
 		double hParallax    = cv("wr_parallax", 0.06);
+		double hLowAmmo     = cv("wr_lowammo_pulse", 0.35);
 
 		// The visual half of the idle-close warning -- WorldTick's own
 		// haptic tick (fired once, at the same threshold) is the felt
@@ -4343,6 +4412,20 @@ class wr_Rig : EventHandler
 				                                  panelH * GAUGE_H_FRAC * pulse);
 				level.OrientBillboard(mGauges[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
 				level.RollBillboard(mGauges[i], roll);
+
+				// LOW-AMMO PULSE -- the same shimmer oscillation the plate's
+				// ambient shimmer uses (SHIMMER_SPEED/PHASE), but gated on
+				// mLowAmmo instead of wr_shimmer, so it works regardless of
+				// whether ambient shimmer is even turned on. wr_shimmer
+				// answers "does this ring feel alive"; this answers "is
+				// this specific weapon about to be empty" -- two different
+				// questions that would otherwise share one on/off switch.
+				if (i < mLowAmmo.Size() && mLowAmmo[i] && hLowAmmo > 0.0)
+				{
+					double lf = 0.5 + 0.5 * sin(level.maptime * SHIMMER_SPEED + i * SHIMMER_PHASE);
+					double lg = hLowAmmo * lf;
+					level.SetBillboardGlow(mGauges[i], clamp(GLOW_R * lg, 0.0, 1.0), GLOW_S * lg);
+				}
 			}
 
 			// The count, in its own lit bezel at the bottom of the card.
@@ -5680,7 +5763,21 @@ class wr_Rig : EventHandler
 		if (hitCard >= 0 && hitCard < mCardX.Size() && hitCard < mCardColor.Size())
 		{
 			Vector3 burstAt = cardPos(hitCard);
-			sparks(burstAt, sparkColor(mCardColor[hitCard]), dry ? 0.4 : 1.0);
+			color burstHue = sparkColor(mCardColor[hitCard]);
+			sparks(burstAt, burstHue, dry ? 0.4 : 1.0);
+
+			// One-shot ring at the same spot the sparks just fired from,
+			// same reasoning as expandSlot()'s own flash -- non-persistent,
+			// self-expiring, needs no further script involvement. The take
+			// already has a sound and a haptic pulse; this is the visual
+			// third that reads even with haptics or sound off.
+			if (cvBool("wr_flash", true))
+			{
+				level.AddBillboard(burstAt, panelWNow() * 1.3, panelHNow() * 1.3,
+					pmo.angle + 180, PANEL_TILT, LevelLocals.BBF_FIXED,
+					LevelLocals.BB_RING, 0, burstHue,
+					LevelLocals.BBFL_NOHIT, 0.35);
+			}
 
 			// And it flips as it folds away. Roll is a real axis now, and the
 			// group collapse keeps the billboards alive long enough to see it.
@@ -5709,7 +5806,16 @@ class wr_Rig : EventHandler
 			if (hitSub >= 0 && hitSub < mSubX.Size() && hitSub < mSubColor.Size())
 			{
 				Vector3 burstAt = subPos(hitSub);
-				sparks(burstAt, sparkColor(mSubColor[hitSub]), dry ? 0.4 : 1.0);
+				color burstHue = sparkColor(mSubColor[hitSub]);
+				sparks(burstAt, burstHue, dry ? 0.4 : 1.0);
+
+				if (cvBool("wr_flash", true))
+				{
+					level.AddBillboard(burstAt, panelWNow() * 1.3, panelHNow() * 1.3,
+						pmo.angle + 180, PANEL_TILT, LevelLocals.BBF_FIXED,
+						LevelLocals.BB_RING, 0, burstHue,
+						LevelLocals.BBFL_NOHIT, 0.35);
+				}
 
 				mSubFlipCard = hitSub;
 				mFlipTics    = CLOSE_TICS;

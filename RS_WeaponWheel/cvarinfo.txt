@@ -72,6 +72,16 @@ user int   wr_toggle_prefer_hand = -1;
 // before this existed.
 user int   wr_recenter_window = 10;
 
+// A one-shot ring flash when a fan actually opens (dwell or the manual
+// +use gesture) or a grab is confirmed.
+user bool  wr_flash = true;
+
+// Below this loaded fraction (not empty, just running low), a weapon's
+// ammo gauge pulses. 0 turns the check off, not just the visual --
+// nothing is loaded into mLowAmmo either way.
+user float wr_lowammo_frac  = 0.25;
+user float wr_lowammo_pulse = 0.35;
+
 // Master size. Grows distance, card size and reach together, so "make it
 // bigger" stays one thought instead of four sliders.
 user float wr_scale    = 1.0;
