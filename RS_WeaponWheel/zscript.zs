@@ -326,6 +326,11 @@ class wr_Rig : EventHandler
 	Array<int>    mSubMarks;
 	Array<int>    mSubBase;      // resting colour, so hover-off restores the right one
 	Array<double> mSubAmmoW;
+	// Fan-card counterpart to mLowAmmo -- computed the same way, at the
+	// same build site, from the same ammoLoaded() call. Without this a
+	// low-ammo weapon shown only as an expanded fan sub-card never got
+	// the low-ammo pulse at all, only its collapsed/flat counterpart did.
+	Array<bool>   mSubLowAmmo;
 	Array<double> mSubLabelH;
 	Array<Class<Weapon> > mSubTypes;
 	// A SUBCARD IS A CARD, PART TWO. mSubBase is the DRY-AWARE resting colour
@@ -367,9 +372,11 @@ class wr_Rig : EventHandler
 	bool    mHaveAnchor;
 	// A ceiling on ringR (below), set once alongside mAnchor from side
 	// traces the forward-only wall check can't see -- a wall to the
-	// player's LEFT or RIGHT of where the ring opened. 0 means "no cap
-	// found," not "collapse to zero"; ringR only ever shrinks toward this
-	// value, never grows past its own count-driven sizing because of it.
+	// player's LEFT or RIGHT of where the ring opened. -1 means "no cap
+	// found"; 0 is a real, reachable cap (a wall close enough that the
+	// margin-adjusted distance floors to zero), so it cannot double as
+	// the sentinel. ringR only ever shrinks toward this value, never
+	// grows past its own count-driven sizing because of it.
 	double  mMaxRingR;
 	// The ring's ACTUAL current radius, written once per layout() pass --
 	// see the note there ("Ring radius grows with the count so the cards
@@ -385,6 +392,14 @@ class wr_Rig : EventHandler
 	Vector3 mLastPoke;
 	bool mHavePoke;
 	int  mLockTics;
+	// One-shot guard for the idle-close warning haptic (WorldTick).
+	// NOT compared against mLockTics by equality -- wr_locktics and
+	// wr_warn_tics are both live-tunable sliders, and a countdown that
+	// can start AT OR BELOW its own warning threshold would never pass
+	// through exact equality with it. This flag instead fires once the
+	// first tic mLockTics is inside the window, however it got there,
+	// and resets everywhere mLockTics itself resets.
+	bool mWarnedThisOpen;
 	bool    mTouching;            // hand is physically inside a card
 	bool    mBtOn;                // we are the ones holding bullet time on
 
@@ -495,17 +510,30 @@ class wr_Rig : EventHandler
 		if (e.Name ~== "wr_expand")
 		{
 			// Re-checked server-side, same gates InputProcess already
-			// applied client-side -- an event in flight can arrive after
-			// state that made it valid has already changed.
+			// applied client-side, INCLUDING mTouching now -- an event in
+			// flight can arrive after state that made it valid has
+			// already changed (e.g. the hand drifted onto the card
+			// between the client send and this running), and the client
+			// gate is specifically the "aiming at range" gesture, not the
+			// touch-grab one; missing this check let the at-range gesture
+			// fire even after the player was already touching the card.
 			let pmo = players[consoleplayer].mo;
-			if (pmo != null && mOpen && mHovered != 0 && mFansEnabled
+			if (pmo != null && mOpen && !mTouching && mHovered != 0 && mFansEnabled
 				&& !belongsToExpansion(mHovered))
 			{
-				int before = mSubIds.Size();
-				expandSlot(pmo, cardIndexOf(mHovered));
-				// Only if a fan actually opened -- same "silence over a
-				// false announcement" rule the dwell path itself uses.
-				if (mSubIds.Size() > before)
+				int cardIndex = cardIndexOf(mHovered);
+				expandSlot(pmo, cardIndex);
+				// mExpanded == cardIndex, not a before/after mSubIds.Size()
+				// comparison -- expandSlot() unconditionally collapses any
+				// existing fan FIRST, so swapping from an open 4-variant
+				// fan to a different 2-variant slot shrinks mSubIds even
+				// on a genuine success, and the old size check reported
+				// that as failure. expandSlot() only ever sets mExpanded
+				// to the index it was asked for once it actually built a
+				// fan for it (collapseSlot() resets mExpanded to -1 on
+				// every early-return path), so this is the real success
+				// signal regardless of the old and new fan's relative size.
+				if (mExpanded == cardIndex)
 				{
 					feedback(Sound("wristrig/tick"), 0.30, 45);
 					// The dwell timer would otherwise still be counting
@@ -567,17 +595,27 @@ class wr_Rig : EventHandler
 	// A fat-fingered wr_toggle_main/wr_toggle_off shouldn't have to mean
 	// "summon on this specific hand" for a player who always means the
 	// same hand anyway. wr_toggle_prefer_hand (-1 off, 0 main, 1 off-hand)
-	// overrides which hand a bind actually opens on -- but ONLY while
-	// nothing is open. If a ring is already up (on either hand), the bind
-	// that was actually pressed still routes to the hand it names, so
-	// either key can still reach and close whichever ring is really open,
-	// rather than a preference silently eating the one press that would
-	// have closed it.
+	// overrides which hand BOTH binds target, unconditionally while a
+	// preference is set -- not just on open.
+	//
+	// UNCONDITIONAL ON PURPOSE, fixing a real bug the first version of
+	// this had: substituting only while nothing was open meant a SECOND
+	// press of the exact key that opened the ring (redirected to the
+	// other hand by the preference) no longer matched mRigHand in
+	// toggle()'s own close check -- pressedHand and mRigHand disagreed,
+	// so the "same key again" case fell into the cross-hand MOVE branch
+	// instead of closing, contradicting the very point of always meaning
+	// one hand. Substituting every time instead means both binds always
+	// resolve to the SAME target hand while a preference is active, so
+	// toggle()'s own `mRigHand == hand` check is always comparing against
+	// that same resolved hand and closes correctly on any repress of
+	// either key. The cost: moving an open ring to the OTHER hand isn't
+	// reachable while a preference is set -- which is the deliberately
+	// intended shape of "I always mean one hand", not a regression.
 	private int preferredToggleHand(int pressedHand) const
 	{
 		int pref = int(cv("wr_toggle_prefer_hand", -1.0));
 		if (pref != 0 && pref != 1) return pressedHand;
-		if (mOpen) return pressedHand;
 		return pref;
 	}
 
@@ -679,6 +717,7 @@ class wr_Rig : EventHandler
 		// safety net by config typo, so this floors instead of disabling.
 		mLockTics  = int(cv("wr_locktics", 140));
 		if (mLockTics <= 0) mLockTics = 140;
+		mWarnedThisOpen = false;
 		mDebugPainted = false;
 
 
@@ -2026,6 +2065,10 @@ class wr_Rig : EventHandler
 			mSubAmmos.Push(said);
 			mSubAmmoW.Push(saw);
 
+			double sLoadFrac = ammoLoadedFrac(held);
+			mSubLowAmmo.Push(srounds > 0 && sLoadFrac >= 0.0
+				&& sLoadFrac < cv("wr_lowammo_frac", 0.25));
+
 			// The same proportion as a bar. A subcard is never canvas-painted
 			// (item 2 of the parity pass, deferred -- wr_canvas is off by
 			// default and this is the wr_canvas-off path either way), so
@@ -2122,6 +2165,7 @@ class wr_Rig : EventHandler
 		mSubShadows.Clear();
 		mSubGauges.Clear();
 		mSubAmmoW.Clear();
+		mSubLowAmmo.Clear();
 		mSubLabelH.Clear();
 		mSubTypes.Clear();
 		mExpanded = -1;
@@ -2279,10 +2323,22 @@ class wr_Rig : EventHandler
 		// below turns N re-reads (plus wr_glow's own double-read, once for
 		// the plate and once for the label) into one.
 		double hSubDim        = cv("wr_dim", 0.55);
-		double hSubFlip       = cv("wr_flip", 360.0);
 		double hSubShadowOff  = cv("wr_shadow_offset", 0.35) * cv("wr_scale", 1.0) * 0.55;
 		double hSubShadow     = clamp(cv("wr_shadow", 0.5), 0.0, 1.0);
 		double hSubGlow       = cv("wr_glow", 1.0);
+		double hSubLowAmmo    = cv("wr_lowammo_pulse", 0.35);
+
+		// Same idle-close warning fade layout() applies to the main ring
+		// -- computed fresh here rather than passed in, since this is a
+		// separate function with its own hoisting block already. Without
+		// this, a fan's own sub-cards -- the ones a player is actually
+		// looking at while it's open -- stayed at full brightness right
+		// through the ring's idle-close warning window while the rest of
+		// the ring visibly dimmed.
+		double subWarnFrac = 1.0;
+		int subWarnTics = int(cv("wr_warn_tics", 25.0));
+		if (subWarnTics > 0 && mLockTics < subWarnTics)
+			subWarnFrac = clamp(double(mLockTics) / subWarnTics, 0.15, 1.0);
 
 		for (int i = 0; i < mSubIds.Size(); ++i)
 		{
@@ -2354,19 +2410,15 @@ class wr_Rig : EventHandler
 
 			double subAlpha = 1.0;
 			if (mHovered != 0 && !slit) subAlpha = clamp(hSubDim, 0.05, 1.0);
+			subAlpha *= subWarnFrac;
 
-			// The take-confirmation flip. mSubFlipCard is commit()'s own
-			// field, separate from mFlipCard -- a main card and a sub-card
-			// index space overlap (both start at 0), so a single shared
-			// field could not tell "card 2 is flipping" from "sub 2 is
-			// flipping" apart. They share mFlipTics because only one thing
-			// is ever taken at a time.
+			// The take-confirmation flip is applied in WorldTick, not here
+			// -- same reason as the main ring's own version of this note.
+			// mSubFlipCard (commit()'s own field, separate from mFlipCard
+			// since a main card and a sub-card index space overlap) is
+			// still what WorldTick reads to know which subcard's billboard
+			// to roll.
 			double subRoll = 0.0;
-			if (i == mSubFlipCard && mFlipTics > 0 && CLOSE_TICS > 0)
-			{
-				double ft = 1.0 - (double(mFlipTics) / CLOSE_TICS);
-				subRoll += (1.0 - (1.0 - ft) * (1.0 - ft)) * hSubFlip;
-			}
 
 			// THE SHADOW. wr_shadow_offset scaled to about half main's --
 			// confirmed necessary, not just cautious: `need` above solves
@@ -2455,6 +2507,14 @@ class wr_Rig : EventHandler
 				                                     panelH * GAUGE_H_FRAC * spulse);
 				level.OrientBillboard(mSubGauges[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
 				level.RollBillboard(mSubGauges[i], subRoll);
+
+				// Fan counterpart to the main ring's low-ammo gauge pulse.
+				if (i < mSubLowAmmo.Size() && mSubLowAmmo[i] && hSubLowAmmo > 0.0)
+				{
+					double slf = 0.5 + 0.5 * sin(level.maptime * SHIMMER_SPEED + i * SHIMMER_PHASE);
+					double slg = hSubLowAmmo * slf;
+					level.SetBillboardGlow(mSubGauges[i], clamp(GLOW_R * slg, 0.0, 1.0), GLOW_S * slg);
+				}
 			}
 
 			// The held mark, same corner as a ring card's.
@@ -2620,7 +2680,14 @@ class wr_Rig : EventHandler
 	//
 	// Told apart by asking whether an alt fire exists at all. No AltFire state
 	// means Ammo2 cannot be feeding one, whatever else it is for.
-	private static bool hasAltFire(Weapon w)
+	//
+	// Not `private` -- wr_gunhud.zs's own hasMagazine() used to carry a
+	// byte-identical inline copy of this exact check, which is how it
+	// missed the alt-fire exclusion fix landing here without a matching
+	// edit there. Same pk3, same load unit, so calling wr_Rig.hasAltFire
+	// from another class in this mod is a same-mod call, not a real
+	// external dependency.
+	clearscope static bool hasAltFire(Weapon w)
 	{
 		return w != null && w.FindState('AltFire') != null;
 	}
@@ -3872,20 +3939,31 @@ class wr_Rig : EventHandler
 			// geometry awareness.
 			Vector3 sideDir = (-sin(mAnchorYaw), cos(mAnchorYaw), 0);
 			double sideMax = 60.0;
-			mMaxRingR = 0.0;
+			// Same card-thickness clearance the forward check already
+			// subtracts (Distance - 6.0) -- a ring sized to the raw hit
+			// distance, with no margin, can still visually clip the wall
+			// the trace just found, the same problem the forward check's
+			// own pullback exists to prevent.
+			double sideMargin = 6.0;
+			// -1, not 0 -- 0.0 is a REAL, reachable cap (something sits
+			// close enough that the margin-adjusted distance floors to
+			// exactly zero), and the old 0.0 sentinel could not tell that
+			// apart from "no wall found at all", silently treating a
+			// wall right at the anchor as uncapped.
+			mMaxRingR = -1.0;
 			Sector anchorSector = level.PointInSector((mAnchor.X, mAnchor.Y));
 			let sideTracer = new("LineTracer");
 			if (sideTracer.Trace(mAnchor, anchorSector, sideDir, sideMax,
 				TRACE_NoSky | TRACE_PortalRestrict, 0xFFFFFFFF, true))
 			{
-				mMaxRingR = sideTracer.Results.Distance;
+				mMaxRingR = max(0.0, sideTracer.Results.Distance - sideMargin);
 			}
 			let sideTracer2 = new("LineTracer");
 			if (sideTracer2.Trace(mAnchor, anchorSector, (0,0,0) - sideDir, sideMax,
 				TRACE_NoSky | TRACE_PortalRestrict, 0xFFFFFFFF, true))
 			{
-				double d = sideTracer2.Results.Distance;
-				if (mMaxRingR <= 0.0 || d < mMaxRingR) mMaxRingR = d;
+				double d = max(0.0, sideTracer2.Results.Distance - sideMargin);
+				if (mMaxRingR < 0.0 || d < mMaxRingR) mMaxRingR = d;
 			}
 		}
 
@@ -3982,14 +4060,22 @@ class wr_Rig : EventHandler
 		}
 
 		// The side-trace ceiling from anchor-freeze, above. Applied LAST,
-		// after the count-driven growth and the sheet's own floor, so it is
-		// a genuine ceiling on the final answer rather than one more input
-		// those can grow past. In a space too tight even for the sheet,
-		// this wins anyway -- a ring sized smaller than it would like beats
-		// one whose cards clip through the wall that caused this check to
-		// exist. mMaxRingR of 0 means no wall was found in either
-		// direction, so nothing is capped.
-		if (mMaxRingR > 0.0 && ringR > mMaxRingR) ringR = mMaxRingR;
+		// after the count-driven growth and the sheet's own floor, so it
+		// is a genuine ceiling on the final answer rather than one more
+		// input those can grow past. mMaxRingR of 0 means no wall was
+		// found in either direction, so nothing is capped.
+		//
+		// NEVER BELOW minR, though -- that floor exists so neighbouring
+		// cards don't overlap, which is worse than the wall-clip this
+		// whole mechanism exists to prevent (an unreadable, physically
+		// intersecting ring vs. one whose edge sits inside a wall).
+		// sheetR is still allowed to lose: a ring smaller than it would
+		// like beats one whose cards clip through the wall, and losing
+		// against the SHEET specifically doesn't produce overlapping
+		// cards, just a ring standing closer to the panel than usual --
+		// the original tradeoff this comment already defended, now
+		// scoped to the one floor it was actually safe for.
+		if (mMaxRingR >= 0.0 && ringR > mMaxRingR) ringR = max(mMaxRingR, minR);
 
 		// Published for RingClearance() -- anything parking beside the
 		// ring needs the count-grown extent, not the tuned base value.
@@ -4057,7 +4143,6 @@ class wr_Rig : EventHandler
 		// for the plate's halo, once for the label's) at the identical
 		// value both times.
 		double hDim         = cv("wr_dim", 0.55);
-		double hFlip        = cv("wr_flip", 360.0);
 		double hShadowOff   = cv("wr_shadow_offset", 0.35) * sc;
 		double hShadow      = clamp(cv("wr_shadow", 0.5), 0.0, 1.0);
 		double hModelScale  = cv("wr_model_scale", 0.16);
@@ -4136,14 +4221,10 @@ class wr_Rig : EventHandler
 			// so a card caught mid-tumble is pointable exactly where it looks.
 			double roll = (1.0 - grow) * ARRIVE_ROLL * ((i % 2 == 0) ? 1.0 : -1.0);
 
-			// The card you took spins as it goes. A full turn over the collapse,
-			// eased so it leaves fast and slows into nothing rather than
-			// stopping dead at the moment it disappears.
-			if (i == mFlipCard && mFlipTics > 0 && CLOSE_TICS > 0)
-			{
-				double ft = 1.0 - (double(mFlipTics) / CLOSE_TICS);
-				roll += (1.0 - (1.0 - ft) * (1.0 - ft)) * hFlip;
-			}
+			// The take-confirmation flip is applied in WorldTick, not here
+			// -- this function stops running the instant mOpen goes
+			// false, which commit() itself causes synchronously right
+			// after arming the flip, so a branch here could never fire.
 
 			if (i < mCardX.Size()) { mCardX[i] = pos.X; mCardY[i] = pos.Y; mCardZ[i] = pos.Z; }
 
@@ -4607,12 +4688,21 @@ class wr_Rig : EventHandler
 		// is someone who is still deciding.
 		//
 		// ONE haptic tick, the instant the countdown crosses into its own
-		// warning window -- not a warning if a player never feels it start,
-		// so this fires once rather than buzzing continuously. layout()'s
-		// own warnFrac (below) does the visual half, fading the whole ring
-		// over the same window; this is the felt half. Equality, not a
-		// range check, because mLockTics only ever steps down by exactly
-		// one -- it can only ever equal warnTics on one tic.
+		// warning window -- not a warning if a player never feels it
+		// start, so this fires once rather than buzzing continuously.
+		// layout()'s own warnFrac (below) does the visual half, fading
+		// the whole ring over the same window; this is the felt half.
+		//
+		// mWarnedThisOpen, not exact equality against warnTics -- both
+		// wr_locktics and wr_warn_tics are live menu sliders, and if
+		// wr_locktics is ever tuned to start AT OR BELOW wr_warn_tics,
+		// a countdown that only steps down could never pass through
+		// exact equality with it, so the haptic would silently never
+		// fire while the visual half (a `<` comparison, not `==`) ran
+		// for the ring's entire lifetime. The guard flag instead fires
+		// on the first tic mLockTics is inside the window, however it
+		// got there -- including immediately, if the ring opens already
+		// inside it -- and resets everywhere mLockTics itself resets.
 		//
 		// Haptic only, no sound -- there is no dedicated cue for this in
 		// sndinfo.txt, and this is a tactile nudge on the hand already
@@ -4620,8 +4710,9 @@ class wr_Rig : EventHandler
 		// feedback() itself uses to gate its own haptic half on wr_haptics
 		// separately from wr_sound.
 		int warnTics = int(cv("wr_warn_tics", 25.0));
-		if (mLockTics == warnTics)
+		if (!mWarnedThisOpen && warnTics > 0 && mLockTics <= warnTics)
 		{
+			mWarnedThisOpen = true;
 			double warnGain = cv("wr_haptics", 1.0);
 			if (warnGain > 0.0) level.VRHaptic(mPokeHand, 0.3 * warnGain, 40);
 		}
@@ -5562,6 +5653,7 @@ class wr_Rig : EventHandler
 		{
 			mLockTics = int(cv("wr_locktics", 140));
 			if (mLockTics <= 0) mLockTics = 140;
+			mWarnedThisOpen = false;
 		}
 	}
 
@@ -5623,7 +5715,16 @@ class wr_Rig : EventHandler
 	// subclasses with their own tags and selection numbers. Stripping the suffix
 	// is what lets the rig recognise those as siblings rather than as unrelated
 	// weapons that happen to look alike.
-	private static string familyRoot(string name)
+	//
+	// Not `private` -- the LegenDoom and DRLA compat files need the exact
+	// same suffix-stripping rule (a dual-wielded clone's rarity/tier
+	// marker is named after the un-suffixed base class) and used to carry
+	// byte-identical copies of this function. Unlike those files' own
+	// cv() copies, which genuinely differ per file for a real reason,
+	// this is pure string logic with zero cvar/mod dependency, so there
+	// was no justification for three independent copies of the same
+	// convention to drift out of sync.
+	clearscope static string familyRoot(string name)
 	{
 		int n = name.Length();
 		if (n < 3) return name;

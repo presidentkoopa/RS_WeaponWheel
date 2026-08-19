@@ -40,6 +40,15 @@ class wr_GunTag : EventHandler
 	private string mTagText[2];
 	private Class<Weapon> mTagFor[2];
 	private bool   mTagDry[2];
+	// Caches hasAltFire()'s result per hand, keyed by weapon class --
+	// countFor() runs every tic (the readout NUMBERS have to stay live),
+	// but whether a weapon has an alt fire at all is a fact about its
+	// CLASS, not something that changes tic to tic. Without this,
+	// FindState('AltFire') ran on a genuine per-tic hot path (both
+	// hands, every tic) for a result that only ever changes on a weapon
+	// swap.
+	private Class<Weapon> mMagCheckedFor[2];
+	private bool   mMagCache[2];
 	// wr_gun_color/wr_gun_dry (hue) and wr_gun_lcd (payload shape) go into
 	// AddBillboardPersistent at creation and never get revisited, same as
 	// mTagFor/mTagDry -- but neither WAS in the rebuild gate, so toggling
@@ -274,10 +283,15 @@ class wr_GunTag : EventHandler
 	// its alt-fire reserve as the gun's own magazine here -- showing the
 	// grenade count as the headline number and flagging the weapon dry
 	// at 0 grenades while it was still fully loaded.
-	private static bool hasMagazine(Weapon w)
+	//
+	// hasMag is passed in, not recomputed here -- see mMagCache in
+	// updateTag(). Whether a weapon has an alt fire doesn't change while
+	// you're holding it, so the caller checks it once per weapon swap,
+	// not once per tic.
+	private static bool hasMagazine(Weapon w, bool hasAlt)
 	{
 		if (w == null || w.Ammo2 == null || w.Ammo2 == w.Ammo1) return false;
-		if (w.FindState('AltFire') != null) return false;
+		if (hasAlt) return false;
 		return true;
 	}
 
@@ -287,11 +301,11 @@ class wr_GunTag : EventHandler
 	// matter. Everything else shows the one number it has. A weapon with no
 	// ammo at all -- a fist, a chainsaw -- gets no readout rather than a zero,
 	// which would read as empty rather than as not applicable.
-	private static string, bool countFor(Weapon w)
+	private static string, bool countFor(Weapon w, bool hasAlt)
 	{
 		if (w == null) return "", false;
 
-		if (hasMagazine(w))
+		if (hasMagazine(w, hasAlt))
 		{
 			int mag = w.Ammo2.Amount;
 			int res = (w.Ammo1 != null) ? w.Ammo1.Amount : -1;
@@ -319,8 +333,22 @@ class wr_GunTag : EventHandler
 		if (hand == 1 && cv("wr_gun_offhand", 1.0) <= 0.0) want = false;
 
 		Weapon w = heldBy(hand);
+
+		// Recomputed only on a weapon-class change, not every tic -- see
+		// mMagCache's own field comment.
+		if (w == null)
+		{
+			mMagCheckedFor[hand] = null;
+			mMagCache[hand] = false;
+		}
+		else if (mMagCheckedFor[hand] != w.GetClass())
+		{
+			mMagCheckedFor[hand] = w.GetClass();
+			mMagCache[hand] = wr_Rig.hasAltFire(w);
+		}
+
 		string txt; bool dry;
-		[txt, dry] = countFor(w);
+		[txt, dry] = countFor(w, mMagCache[hand]);
 
 		bool dbg = cv("wr_debug", 0.0) > 0.0 && mDebugTics[hand]-- <= 0;
 		if (dbg)

@@ -53,11 +53,6 @@ class wr_CompatLegenDoom
 		return c ? c.GetFloat() : fallback;
 	}
 
-	// Same stripping logic as the ring's own familyRoot() (zscript.zs) --
-	// duplicated here rather than shared, matching this file's own
-	// existing pattern of a private cv() copy instead of a call back into
-	// the ring class, so a compat file stays a self-contained drop-in.
-	//
 	// A dual-wielded weapon is legitimately a numbered clone subclass
 	// (LDPistol_2, per the ring's own convention), but LegenDoom's Ready-
 	// state check for the rarity marker is inherited unchanged from the
@@ -66,15 +61,13 @@ class wr_CompatLegenDoom
 	// the suffix first, RarityOf(LDPistol_2) searched for
 	// "LDPistol_2LegendaryEpic", found nothing, and a legendary weapon's
 	// twin silently showed no rarity at all.
-	private static string familyRoot(string name)
-	{
-		int n = name.Length();
-		if (n < 3) return name;
-		int last = name.ByteAt(n - 1);
-		if (name.ByteAt(n - 2) != 0x5F) return name;   // '_'
-		if (last < 0x32 || last > 0x39) return name;   // '2'..'9'
-		return name.Left(n - 2);
-	}
+	//
+	// wr_Rig.familyRoot() does the stripping -- a shared static, not a
+	// duplicated copy: unlike this file's own private cv() (which
+	// genuinely differs from the ring's, see that comment), the suffix
+	// rule is pure string logic with no cvar or mod dependency, so a
+	// second copy here had nothing to justify it and no way to stay in
+	// sync with the original if the convention ever changed.
 
 	// FOUND, RARITY. Order checked is Epic down to Common, matching the order
 	// LegenDoom's own Ready states check in (Pistol.dec and siblings) -- a
@@ -85,7 +78,7 @@ class wr_CompatLegenDoom
 		int none;
 		if (!w || cv("wr_ld_compat", 1.0) <= 0.0) return false, none;
 
-		string base = familyRoot("" .. w.GetClassName());
+		string base = wr_Rig.familyRoot("" .. w.GetClassName());
 		string wantEpic     = base .. "LegendaryEpic";
 		string wantRare     = base .. "LegendaryRare";
 		string wantUncommon = base .. "LegendaryUncommon";
@@ -159,7 +152,7 @@ class wr_CompatLegenDoom
 	{
 		if (!w || cv("wr_ld_compat", 1.0) <= 0.0 || cv("wr_ld_effects", 1.0) <= 0.0) return "";
 
-		string prefix = familyRoot("" .. w.GetClassName()) .. "Effect_";
+		string prefix = wr_Rig.familyRoot("" .. w.GetClassName()) .. "Effect_";
 		int plen = int(prefix.Length());   // Length() is unsigned; see classNameHash()
 		                                    // in zscript.zs for the same cast and why.
 		string s = "";
