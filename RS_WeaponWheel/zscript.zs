@@ -379,6 +379,30 @@ class wr_Rig : EventHandler
 	// ZScript dynamic arrays take integral base types only, so Array<Vector3>
 	// does not compile here any more than Array<Vector2> does for icon sizes.
 	Array<double> mSubX, mSubY, mSubZ;
+
+	// THE CONSTELLATION'S OWN TWO EXTRAS, both empty and untouched unless
+	// wr_constellation is on -- see layoutExpansion's constellation block.
+	//
+	// mSubLines: one BB_SEAM per satellite, drawn hub-to-star. A seam is a
+	// glowing slit whose shader deliberately has no progress term of its own
+	// ("the easing, the pause and the reverse all belong to the caller",
+	// doombase.zs), which is exactly what a line that draws ITSELF outward
+	// from the hub needs -- the width is animated by this file, per tic.
+	Array<int>    mSubLines;
+
+	// mStars: the decorative background field. Not cards, not selectable,
+	// never hit-tested -- they exist to make the expansion read as a piece of
+	// sky rather than a scatter plot. Their count is wr_stars.
+	Array<int>    mStars;
+	Array<double> mStarX, mStarY;   // fixed offsets in the view plane, per star
+	Array<int>    mStarHue;
+
+	// Tics since the current expansion opened. The fan itself needs no such
+	// counter -- AnimateBillboardGroup hands its whole easing job to the
+	// engine -- but the constellation's lines are drawn by THIS file, one
+	// ResizeBillboard per tic, so they need to know how far along the opening
+	// actually is. Reset by expandSlot, cleared by collapseSlot.
+	int mFanTics;
 	Array<int>    mSubShadows;
 	Array<int>    mSubGauges;
 	int mExpanded;                // index into mIds, or -1
@@ -723,6 +747,7 @@ class wr_Rig : EventHandler
 		spawnPanels();
 		spawnCardModels(pmo);
 		buildSheet();
+		buildStars();
 
 		mOpen      = true;
 		mHovered   = 0;
@@ -1492,6 +1517,110 @@ class wr_Rig : EventHandler
 		return t;
 	}
 
+	// THE BACKGROUND STARFIELD.
+	//
+	// Pure decoration, and deliberately so: nothing here is selectable, hit
+	// tested, or tied to a weapon. It exists because a constellation drawn
+	// against empty air reads as a scatter plot, and the same constellation
+	// drawn against a field of other, dimmer, further-away lights reads as a
+	// piece of sky -- which is the whole difference the shape was chosen for.
+	//
+	// Built ONCE per rig, not per expansion. The field is the room the cards
+	// are in; rebuilding it every time a slot opened would make the sky itself
+	// flicker on and off as you browsed.
+	private void buildStars()
+	{
+		clearStars();
+
+		int want = int(cv("wr_stars", 0.0));
+		if (want <= 0) return;
+
+		// Positions and hues are HASHED off the star's index, never rolled --
+		// the same reasoning the constellation's own scatter is deterministic.
+		// A sky that is different every time you raise your hand is noise; one
+		// that is the same sky is a place.
+		for (int i = 0; i < want; ++i)
+		{
+			int h = ((i + 1) * 2654435761) & 0x7FFFFFFF;
+
+			// Spread over a square a good deal wider than the ring itself, so
+			// the field runs past the cards rather than stopping neatly behind
+			// them and reading as a backdrop panel.
+			mStarX.Push(double((h >>  3) & 1023) / 1023.0 - 0.5);
+			mStarY.Push(double((h >> 13) & 1023) / 1023.0 - 0.5);
+
+			// HASHED HUE, the same fallback the ring already uses to colour a
+			// weapon with no tier to colour by -- so the field has real
+			// variety, a few warm and a few cool, rather than reading as one
+			// flat layer of grey dust.
+			int hue = starHue(h);
+			mStarHue.Push(hue);
+
+			mStars.Push(level.AddBillboardPersistent(
+				(0, 0, 0), 0.16, 0.16, 0, 0,
+				LevelLocals.BBF_FIXED, LevelLocals.BB_PANEL, 15,
+				hue, LevelLocals.BBFL_NOHIT, 0, ""));
+		}
+	}
+
+	// A star's colour, from its own hash. Kept pale -- these are BEHIND the
+	// data and must never compete with it, so every channel is floored high
+	// (whites and pastels) rather than allowed to run to a saturated colour
+	// that would pull the eye off a card.
+	private static int starHue(int h)
+	{
+		int r = 150 + ((h >>  2) & 105);
+		int g = 150 + ((h >> 11) & 105);
+		int b = 150 + ((h >> 21) & 105);
+		return (r << 16) | (g << 8) | b;
+	}
+
+	private void clearStars()
+	{
+		for (int i = 0; i < mStars.Size(); ++i)
+		{
+			if (mStars[i]) level.RemoveBillboard(mStars[i]);
+		}
+		mStars.Clear();
+		mStarX.Clear();
+		mStarY.Clear();
+		mStarHue.Clear();
+	}
+
+	// Every star placed, faded and sized for this tic. Called from the same
+	// layout pass the cards use, so the field tracks the hand exactly as they
+	// do rather than hanging in world space where the rig used to be.
+	private void layoutStars(Vector3 wrist, Vector3 viewRight, double faceYaw,
+	                         double tilt, double panelW, double ringR, double grow)
+	{
+		if (mStars.Size() == 0) return;
+
+		// Pushed back from the cards along the view axis, which is what lets
+		// wr_parallax separate them into their own plane when you move your
+		// head. Without the offset they would sit in the data's own depth and
+		// read as more cards, just smaller.
+		Vector3 back = (cos(faceYaw + 180), sin(faceYaw + 180), 0) * (panelW * STAR_BEHIND);
+
+		double field = ringR * 3.2;
+
+		for (int i = 0; i < mStars.Size(); ++i)
+		{
+			Vector3 pos = wrist + back
+			            + viewRight * (mStarX[i] * field)
+			            + (0, 0, mStarY[i] * field);
+
+			// Phase-offset per star, so the field twinkles as independent
+			// lights rather than pulsing as one sheet -- SHIMMER_PHASE's own
+			// argument, applied to a hundred small things instead of nine
+			// large ones.
+			double tw = 0.55 + 0.45 * sin(level.maptime * STAR_SPEED + i * STAR_PHASE);
+
+			level.MoveBillboard(mStars[i], pos);
+			level.OrientBillboard(mStars[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+			level.SetBillboardAlpha(mStars[i], tw * grow * cv("wr_stars_alpha", 0.5));
+		}
+	}
+
 	private void buildSheet()
 	{
 		clearSheet();
@@ -1612,7 +1741,7 @@ class wr_Rig : EventHandler
 	// with the ring when a big weapon set grows it instead of being buried.
 	private void layoutSheet(Vector3 wrist, double viewYaw, Vector3 viewRight,
 	                         double tilt, double rise, double ringR,
-	                         double panelW, double panelH)
+	                         double panelW, double panelH, double lateral)
 	{
 		if (mSheetPlate == 0) return;
 
@@ -1625,7 +1754,15 @@ class wr_Rig : EventHandler
 		// every fan, which expands outward. layout() floors ringR against the
 		// sheet's own half-width so the cards orbit clear of it rather than
 		// through it.
-		Vector3 centre = wrist + (0, 0, rise);
+		//
+		// EXCEPT UNDER THE HONEYCOMB, which is why `lateral` exists. A hex
+		// packing is gapless BY DEFINITION -- its centre cell is a real slot
+		// holding a real card, not free space the way the middle of a ring is
+		// -- so there is no hole at the middle for the sheet to stand in
+		// without covering a card. Under wr_hex the caller passes the hive's
+		// own half-width plus clearance here and the sheet stands beside the
+		// comb instead. Zero in ring mode, which is every existing setup.
+		Vector3 centre = wrist + viewRight * lateral + (0, 0, rise);
 
 		// Toward the eye, so text sits proud of its plate instead of z-fighting
 		// it -- the same lift every card label uses.
@@ -1678,6 +1815,7 @@ class wr_Rig : EventHandler
 	private void destroyPanels()
 	{
 		clearSheet();
+		clearStars();
 
 		for (int i = 0; i < mIds.Size(); ++i)
 		{
@@ -2310,7 +2448,32 @@ class wr_Rig : EventHandler
 			mSubLabelH.Push(fitLabel(stag, panelWNow() * LABEL_FIT_FRAC, panelHNow()));
 		}
 
+		// THE CONSTELLATION'S LINES, one per star, hub to satellite.
+		//
+		// Built here rather than in the layout pass for the same reason every
+		// other billboard in this file is: layout runs every tic and must only
+		// ever move what already exists. Only under wr_constellation -- a plain
+		// fan has nothing to connect, its cards being a list rather than a
+		// shape -- so in ring/fan mode this array simply stays empty and the
+		// layout block that would draw them never has an id to draw.
+		//
+		// NOT in mFanGroup. The group applies one eased transform to the whole
+		// fan about the hub's origin, which is right for cards that arrive as a
+		// unit; a line has to be measured and re-laid between two moving points
+		// every tic instead, so it is positioned directly.
+		if (cv("wr_constellation", 0.0) > 0.0)
+		{
+			for (int i = 0; i < mSubIds.Size(); ++i)
+			{
+				mSubLines.Push(level.AddBillboardPersistent(
+					(0, 0, 0), 0.1, LINE_THICK, 0, 0,
+					LevelLocals.BBF_FIXED, LevelLocals.BB_SEAM, 0,
+					mCardColor[cardIndex], LevelLocals.BBFL_NOHIT, 0, ""));
+			}
+		}
+
 		// Unfold. Same declaration-not-a-state-machine deal as the ring.
+		mFanTics = 0;
 		int fanTics = int(cv("wr_growtics", 6.0));
 		if (fanTics > 0 && mSubIds.Size() > 0)
 		{
@@ -2318,8 +2481,33 @@ class wr_Rig : EventHandler
 		}
 	}
 
+	// How far this star's connecting line has drawn, 0..1.
+	//
+	// Staggered per index off the same wr_growtics the cards themselves ease
+	// over, so the web traces outward one link at a time rather than every
+	// line snapping taut at once -- the difference between a diagram appearing
+	// and a constellation being drawn in front of you.
+	private double lineGrow(int i) const
+	{
+		double span = max(cv("wr_growtics", 6.0), 1.0);
+		int stagger = int(cv("wr_star_stagger", 2.0));
+		if (stagger <= 0) return clamp(double(mFanTics) / span, 0.0, 1.0);
+
+		double lead = double(i * stagger);
+		return clamp((double(mFanTics) - lead) / span, 0.0, 1.0);
+	}
+
 	private void collapseSlot()
 	{
+		// The constellation's lines, freed the same as everything else the
+		// expansion owns. Empty in fan mode, so this costs nothing there.
+		for (int i = 0; i < mSubLines.Size(); ++i)
+		{
+			if (mSubLines[i]) level.RemoveBillboard(mSubLines[i]);
+		}
+		mSubLines.Clear();
+		mFanTics = 0;
+
 		for (int i = 0; i < mSubIds.Size(); ++i)
 		{
 			if (mSubIds[i]) level.RemoveBillboard(mSubIds[i]);
@@ -2414,6 +2602,53 @@ class wr_Rig : EventHandler
 
 		int best = 0;
 		double bestOff = 999;
+
+		// THE HONEYCOMB NEEDS A STEP, NOT A BEARING.
+		//
+		// On a ring, a direction IS a slot -- every card has its own angle from
+		// the centre, so the nearest bearing to the stick is the answer with no
+		// notion of "where you already were". A hive has no such mapping: cells
+		// share directions (three of them sit straight up from the centre
+		// column), and the cell you want is almost always the NEIGHBOUR of the
+		// one you are on rather than whichever cell lies furthest along that
+		// heading. So this walks: nearest cell in the pushed direction, out of
+		// those close enough to actually be adjacent.
+		if (cv("wr_hex", 0.0) > 0.0)
+		{
+			int from = cardIndexOf(mHovered);
+
+			// Nothing hovered yet -- fall back to reading the stick as an
+			// absolute heading out of the centre, which is exactly the ring's
+			// own rule and lands you on the edge of the comb you pushed toward.
+			Vector2 origin = (from >= 0) ? hexOffset(from, 1.0, 1.0) : (0.0, 0.0);
+
+			// One spacing, plus a little: the six real neighbours sit at
+			// distance 1 in these normalized units, and the next cells out are
+			// at sqrt(3) -- so anything under ~1.3 is adjacent and anything
+			// over it is a jump this should refuse to make.
+			double reach = 1.3;
+
+			for (int i = 0; i < n; ++i)
+			{
+				if (i == from) continue;
+
+				Vector2 d = hexOffset(i, 1.0, 1.0) - origin;
+				double len = d.Length();
+				if (len < 0.01 || (from >= 0 && len > reach)) continue;
+
+				double off = want - atan2(d.Y, d.X);
+				while (off >  180) off -= 360;
+				while (off < -180) off += 360;
+				off = abs(off);
+
+				// Ties broken by distance, so from the centre (where nothing is
+				// hovered and every ring is in play) the stick picks the NEAR
+				// cell along that heading rather than the far one.
+				double score = off + len * 0.5;
+				if (score < bestOff) { bestOff = score; best = mIds[i]; }
+			}
+			return best;
+		}
 
 		for (int i = 0; i < n; ++i)
 		{
@@ -2533,6 +2768,7 @@ class wr_Rig : EventHandler
 		double hSubShadow     = clamp(cv("wr_shadow", 0.5), 0.0, 1.0);
 		double hSubGlow       = cv("wr_glow", 1.0);
 		double hSubLowAmmo    = cv("wr_lowammo_pulse", 0.35);
+		bool   cStellar       = cv("wr_constellation", 0.0) > 0.0;
 
 		// Same idle-close warning fade layout() applies to the main ring
 		// -- computed fresh here rather than passed in, since this is a
@@ -2586,11 +2822,83 @@ class wr_Rig : EventHandler
 			// single-expression version produced.
 			double a = base + (1 - lane) * sep;
 
+			// THE CONSTELLATION, an alternative expansion rather than a
+			// replacement -- wr_constellation picks, and the fan above is
+			// still the default and still untouched.
+			//
+			// A fan answers "what else is in this slot" as a tidy list. A
+			// constellation answers the same question as a SHAPE: the card
+			// you opened is the hub, its siblings are stars scattered around
+			// it, and a line is drawn from hub to each one as it arrives. The
+			// arrangement is what carries the meaning -- which is why the
+			// scatter below is DETERMINISTIC (hashed off the sub-card's own
+			// index, never frandom) rather than re-rolled every tic. A
+			// constellation that reshuffles while you look at it is a lava
+			// lamp; one that is the same shape every time you open that slot
+			// is something you can come to recognise.
+			if (cStellar)
+			{
+				// Stars ride the same outward bearing the fan uses -- the
+				// slot's own direction is still free space, so this can no
+				// more cross a neighbour than a fan can -- but spread over a
+				// full even sweep rather than three fixed lanes, with each
+				// star pushed in or out by its own hashed jitter.
+				int sn = mSubIds.Size();
+				double swing = max(sep * 1.15, 18.0);
+				double frac  = (sn > 1) ? (double(i) / double(sn - 1) - 0.5) : 0.0;
+
+				// Hash the index into two stable 0..1 values -- one for the
+				// angular wobble, one for the reach. Cheap integer mixing
+				// rather than a table, and identical every open.
+				int h  = (i * 2654435761) & 0x7FFFFFFF;
+				double jA = double((h >> 7)  & 255) / 255.0 - 0.5;
+				double jR = double((h >> 17) & 255) / 255.0;
+
+				a     = base + frac * swing * 2.0 + jA * swing * 0.35;
+				reach = cellW * (FAN_FIRST_RING + 0.35 + jR * 1.15);
+			}
+
 			Vector3 pos = cardPos
 			            + viewRight * (cos(a) * reach)
 			            + (0, 0, sin(a) * reach);
 
 			if (i < mSubX.Size()) { mSubX[i] = pos.X; mSubY[i] = pos.Y; mSubZ[i] = pos.Z; }
+
+			// THE LINE DRAWS ITSELF, HUB TO STAR.
+			//
+			// A seam laid along the hub-to-star vector: parked at the midpoint,
+			// as wide as the gap is long, and ROLLED to that angle -- roll is
+			// the quad's own in-plane spin, which is exactly the axis that
+			// turns a horizontal slit into a line pointing anywhere in the
+			// view plane. Height stays hairline whatever the length.
+			//
+			// It grows rather than appearing: the width is scaled by this
+			// star's own arrival progress, so the line reaches out from the
+			// hub and lands on the star at the moment the star itself does.
+			// Staggered per index, so they trace outward one at a time instead
+			// of all snapping taut together.
+			if (cStellar && i < mSubLines.Size() && mSubLines[i] != 0)
+			{
+				Vector3 span = pos - cardPos;
+				double  len  = span.Length();
+
+				// The card's own half-width is subtracted from each end so the
+				// line runs BETWEEN the two plates rather than under them --
+				// a line that passes beneath the hub reads as one long streak
+				// crossing the whole constellation rather than as a link.
+				double inset = panelW * 0.5;
+				double draw  = max(len - inset * 2.0, 0.0) * lineGrow(i);
+
+				double along = viewRight dot span;
+				double up    = span.Z;
+				double ang   = atan2(up, along);
+
+				level.MoveBillboard(mSubLines[i], cardPos + span * 0.5 + lift);
+				level.ResizeBillboard(mSubLines[i], draw, LINE_THICK);
+				level.OrientBillboard(mSubLines[i], faceYaw, tilt, LevelLocals.BBF_FIXED);
+				level.RollBillboard(mSubLines[i], ang);
+				level.SetBillboardAlpha(mSubLines[i], draw > 0.01 ? subWarnFrac : 0.0);
+			}
 
 			// A SUBCARD IS A CARD, PART THREE -- the same four live values a
 			// main card computes for itself once per tic (spawnPanels'
@@ -2786,6 +3094,108 @@ class wr_Rig : EventHandler
 	{
 		if (count < 1) count = 1;
 		return 135.0 - i * (360.0 / count);
+	}
+
+	//==========================================================================
+	// THE HONEYCOMB, an alternative to the ring rather than a replacement for
+	// it. wr_hex picks; every other setting, every card payload, every compat
+	// read and the whole selection model are shared, because none of them ever
+	// knew what shape the positions formed.
+	//
+	// WHY IT EXISTS: a ring's capacity is bounded by its own circumference --
+	// bearingForIndex divides 360 degrees by the count, so every extra card
+	// makes every gap smaller, and past a dozen the ring has to either grow
+	// out of arm's reach or collapse slots into fans. A honeycomb grows
+	// OUTWARD instead of subdividing: rings 0..2 already hold nineteen cells
+	// at a fixed spacing that never tightens, however many more get added.
+	//
+	// STILL LEARNABLE BY FEEL, which was the one thing the ring's fixed
+	// bearings bought and the thing a 2D layout most obviously risks. A spiral
+	// FILL is as deterministic as an angle: cell 0 is the centre, 1-6 the ring
+	// around it, 7-18 the ring around that, always in the same order and
+	// always in the same place. Slot 4 is the same physical cell on your first
+	// map and your last, exactly as DESIGN.md demands of the ring.
+	//
+	// GAPLESS, and that is the whole point of a hex packing rather than a
+	// square grid -- every cell has six neighbours all at the same distance,
+	// with no diagonal that is further away than an orthogonal one. Note the
+	// PLATES are still rounded rectangles (BB_SDFPANEL draws no hexagon); it
+	// is the LAYOUT that tessellates, so the cards brick-lay with no space
+	// between rows rather than literally interlocking as hexagons.
+	//==========================================================================
+
+	// Which concentric ring index i sits in. Ring 0 is the single centre cell;
+	// ring k holds 6k cells, so rings 0..k hold 1 + 3k(k+1) between them.
+	// Used both by the spiral itself and by the ring-at-a-time arrival, which
+	// wants to know how far out a card is before it knows where it is.
+	private static int hexRingOf(int i)
+	{
+		if (i <= 0) return 0;
+		int ring = 1;
+		while (i > 3 * ring * (ring + 1)) ++ring;
+		return ring;
+	}
+
+	// The six axial steps around a hex, in spiral-walk order. A switch rather
+	// than a static const array: an array declared at class scope is not
+	// reachable from a static function of that same class (the wall
+	// HS_Handler.HasHead documents hitting in Headshots' own source), and
+	// every caller here is static.
+	private static Vector2 hexDir(int s)
+	{
+		switch (s)
+		{
+			case 0: return ( 1,  0);
+			case 1: return ( 1, -1);
+			case 2: return ( 0, -1);
+			case 3: return (-1,  0);
+			case 4: return (-1,  1);
+		}
+		return (0, 1);
+	}
+
+	// Index -> axial hex coordinate, walking the spiral outward. Start at the
+	// ring's own corner (five steps round from the first side, which is what
+	// puts cell 1 where the ring's first card would have been rather than
+	// somewhere arbitrary), advance whole sides, then step along the last one.
+	private static Vector2 hexAxial(int i)
+	{
+		if (i <= 0) return (0, 0);
+
+		int ring = hexRingOf(i);
+		int idx  = i - 1 - 3 * ring * (ring - 1);
+		int side = idx / ring;
+		int step = idx % ring;
+
+		double q = -ring, r = ring;
+
+		for (int s = 0; s < side; ++s)
+		{
+			Vector2 d = hexDir(s);
+			q += d.X * ring;
+			r += d.Y * ring;
+		}
+
+		Vector2 d2 = hexDir(side);
+		q += d2.X * step;
+		r += d2.Y * step;
+
+		return (q, r);
+	}
+
+	// Axial coordinate -> an offset in the view plane: X across (along
+	// viewRight), Y up. The half-column shear on odd rows (q + r*0.5) is what
+	// makes this a honeycomb rather than a square grid -- rows interlock
+	// instead of stacking, so a cell's six neighbours are all one spacing away.
+	//
+	// Spacing comes from the CARD's own measured size rather than a hex
+	// radius, because the cards are rectangles: a row pitch of one full card
+	// height is what actually guarantees no vertical overlap, where an
+	// equilateral hex's 0.866 would only be right if the cards were square.
+	private static Vector2 hexOffset(int i, double xs, double ys)
+	{
+		Vector2 a = hexAxial(i);
+		return (xs * (a.X + a.Y * 0.5), ys * a.Y);
 	}
 
 	// How far a fan spreads either side of its slot's bearing. Capped at 45, but
@@ -4238,6 +4648,12 @@ class wr_Rig : EventHandler
 
 		double cellW = panelW * 1.25;
 
+		// THE HONEYCOMB, or the ring. Read once per tic rather than per card,
+		// alongside the other hoisted cvars below -- and read into a plain
+		// bool because every consumer of it is a branch, not a number.
+		bool hexMode = cv("wr_hex", 0.0) > 0.0;
+		double cellH = panelH * CARD_STRETCH * 1.25;
+
 		// Ring radius grows with the count so the cards never crowd: eight fit at
 		// the tuned distance, twelve push out to keep the same gap between them.
 		// The chord between neighbours is 2 * R * sin(180/N), and that wants to
@@ -4291,7 +4707,28 @@ class wr_Rig : EventHandler
 
 		// Beside the ring, off the SOLVED radius rather than the tuned one --
 		// ringR above has already grown to whatever the card count needed.
-		layoutSheet(wrist, viewYaw, viewRight, tilt, rise, ringR, panelW, panelH);
+		//
+		// The honeycomb has no hole at its middle to stand in (see layoutSheet's
+		// own note on `lateral`), so under wr_hex the sheet is pushed clear of
+		// the hive's widest row instead: the outermost ring's own extent, plus
+		// half a card, plus half the sheet, plus the same gap it always used.
+		double sheetLateral = 0.0;
+		if (hexMode)
+		{
+			int outerRing = hexRingOf(max(n - 1, 0));
+			sheetLateral = cellW * (outerRing + 0.5)
+			             + panelW * (SHEET_W_CARDS * sheetScale() * 0.5 + SHEET_GAP_CARDS);
+		}
+
+		layoutSheet(wrist, viewYaw, viewRight, tilt, rise, ringR, panelW, panelH, sheetLateral);
+
+		// The field goes down BEFORE the cards, so anything the cards paint
+		// this tic lands in front of it rather than behind. Faded in by the
+		// same grow the cards use -- a sky that snaps to full brightness while
+		// the cards are still travelling arrives before the thing it is the
+		// background for. growFactor() called directly rather than reusing the
+		// loop's own `grow` local, which is not declared until below this.
+		layoutStars(wrist, viewRight, viewYaw + 180, tilt, panelW, ringR, growFactor());
 
 		// THE CENTRE CELL IS GONE. The data sheet stands there instead.
 		//
@@ -4376,11 +4813,47 @@ class wr_Rig : EventHandler
 			// reason this can be learned by feel.
 			double bearing = bearingForIndex(i, ringCount) + handRoll;
 
-			Vector3 pos = wrist
-			            + viewRight * (cos(bearing) * ringR)
-			            + (0, 0, sin(bearing) * ringR + rise + breathe);
+			Vector3 pos;
+			double cardGrow = grow;
 
-			if (grow < 1.0) pos = origin + (pos - origin) * grow;
+			if (hexMode)
+			{
+				// The spiral cell, sheared into the view plane. handRoll is
+				// deliberately NOT applied: wrist roll spinning a ring is a
+				// rotation about the ring's own axis and stays legible, but
+				// rotating a tessellation turns a learnable grid into a
+				// shifting one -- the exact property the spiral fill exists
+				// to protect.
+				Vector2 hoff = hexOffset(i, cellW, cellH);
+				pos = wrist
+				    + viewRight * hoff.X
+				    + (0, 0, hoff.Y + rise + breathe);
+
+				// THE COMB GROWS RING BY RING rather than all at once.
+				//
+				// The ring layout has every card travel out of the wrist
+				// together, which is right for it -- they all share one
+				// destination radius, so they arrive as one gesture. A hive
+				// has real structure to show off instead: the centre lands,
+				// then the six around it, then the twelve around those. Each
+				// ring simply starts its own travel a few tics late, reusing
+				// the identical ease rather than adding a second animation.
+				int stagger = int(cv("wr_hex_stagger", 3.0));
+				if (stagger > 0 && grow < 1.0)
+				{
+					double lead = double(hexRingOf(i) * stagger);
+					double span = max(cv("wr_growtics", 6.0), 1.0);
+					cardGrow = clamp((grow * span - lead) / span, 0.0, 1.0);
+				}
+			}
+			else
+			{
+				pos = wrist
+				    + viewRight * (cos(bearing) * ringR)
+				    + (0, 0, sin(bearing) * ringR + rise + breathe);
+			}
+
+			if (cardGrow < 1.0) pos = origin + (pos - origin) * cardGrow;
 
 			// The hovered card steps toward your eye and lights up. Colour alone
 			// is a weak signal on a grid this dense -- depth reads instantly, and
@@ -4425,7 +4898,7 @@ class wr_Rig : EventHandler
 			// as it arrives. Roll is a real billboard axis now, and because it
 			// lives in the SHARED basis the hit quad rolls with the picture --
 			// so a card caught mid-tumble is pointable exactly where it looks.
-			double roll = (1.0 - grow) * ARRIVE_ROLL * ((i % 2 == 0) ? 1.0 : -1.0);
+			double roll = (1.0 - cardGrow) * ARRIVE_ROLL * ((i % 2 == 0) ? 1.0 : -1.0);
 
 			// The take-confirmation flip is applied in WorldTick, not here
 			// -- this function stops running the instant mOpen goes
@@ -5805,6 +6278,11 @@ class wr_Rig : EventHandler
 			++mHoverTics;
 			++mDwellTics;
 
+			// The constellation's own clock -- only ever ticks while an
+			// expansion is actually open, which is exactly when its lines
+			// need to know how far along they are.
+			if (mExpanded >= 0) ++mFanTics;
+
 			// Nothing to unfold when every weapon already has its own card --
 			// the fan would be a duplicate of cards already on the ring.
 			//
@@ -6342,6 +6820,24 @@ class wr_Rig : EventHandler
 	// neighbour by roughly two card widths. Trading a little reach for the
 	// angle to separate properly is the whole point of the number.
 	const FAN_FIRST_RING = 1.6;
+
+	// How thick a constellation's hub-to-star line draws, in map units.
+	// Hairline on purpose and NOT scaled with the cards: a link is meant to
+	// be read as a relationship between two things, and a line heavy enough
+	// to have visual weight of its own starts competing with the stars it is
+	// supposed to be connecting.
+	const LINE_THICK = 0.10;
+
+	// The decorative field's own depth and drift. Stars sit FURTHER from the
+	// eye than the real cards (STAR_BEHIND, in card widths) so the parallax
+	// the ring already applies separates them into a background plane rather
+	// than leaving them mixed in among the data. Their shimmer runs slower
+	// than the cards' own and is phase-offset per star by STAR_PHASE, the
+	// same trick and the same reason SHIMMER_PHASE exists: a field that
+	// breathes in lockstep reads as one blinking object, not as a sky.
+	const STAR_BEHIND = 2.2;
+	const STAR_SPEED  = 1.7;
+	const STAR_PHASE  = 61.0;
 }
 
 // WR_TestPlayer lived here and now lives in RS_WeaponWheel_dev, because

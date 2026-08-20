@@ -15,6 +15,73 @@ user float wr_panel_h  = 3.0;
 user float wr_radius   = 5.0;
 user float wr_rise     = 2.0;
 
+// THE HONEYCOMB, an ALTERNATIVE layout rather than a replacement -- 0 is the
+// ring, exactly as it has always been and still the default; 1 lays the same
+// cards out as a gapless hex tessellation spiralling out from the centre.
+//
+// Why you would: a ring divides 360 degrees by its card count, so every extra
+// weapon tightens every gap, and past a dozen it has to grow out of reach or
+// start collapsing slots into fans. A comb grows outward at a spacing that
+// never tightens -- nineteen cells by its second ring.
+//
+// What you give up: the sheet moves. A ring has a hole at its middle for the
+// sheet to stand in; a gapless comb's centre is a real card, so under this the
+// sheet stands beside the hive instead of inside it.
+//
+// Slot positions stay just as learnable either way -- a spiral FILL is as
+// fixed as an angle, so slot 4 is the same cell every map, same promise the
+// ring's bearings make.
+user bool  wr_hex         = false;
+
+// Tics of delay between one ring of the comb arriving and the next. The
+// centre lands, then the six around it, then the twelve around those --
+// each reusing the same ease wr_growtics already defines, just started late.
+// 0 lands the whole hive at once, the way the ring does.
+user int   wr_hex_stagger = 3;
+
+
+// THE CONSTELLATION
+//
+// An alternative EXPANSION -- what a slot holding several weapons unfolds
+// into -- rather than an alternative ring. 0 is the fan, three tidy lanes
+// stacked outward, still the default and still untouched. 1 scatters the
+// same sub-cards as stars around the card you opened and draws a line from
+// it out to each one.
+//
+// A fan answers "what else is in this slot" as a list. A constellation
+// answers it as a SHAPE, which is the point: the arrangement itself is the
+// information, so the scatter is hashed off each sub-card's own index and
+// is the same shape every time you open that slot -- never re-rolled, never
+// drifting. A constellation you can come to recognise is worth having; a
+// lava lamp is not.
+user bool  wr_constellation = false;
+
+// Tics of delay between one hub-to-star line starting to draw and the next.
+// The web traces outward a link at a time instead of every line snapping
+// taut together. 0 draws them all at once.
+user int   wr_star_stagger  = 2;
+
+
+// THE BACKGROUND STARFIELD
+//
+// Pure decoration, and the reason the constellation reads as a piece of sky
+// rather than as a scatter plot -- dimmer, further-back points of light
+// behind the real cards. Count of stars; 0 is off.
+//
+// They sit behind the cards' own depth plane, so wr_parallax separates them
+// as you move your head, and each twinkles on its own offset phase rather
+// than the whole field pulsing in lockstep. Positions and colours are hashed
+// off each star's index, so it is the same sky every time you raise your
+// hand instead of a fresh scatter every summon.
+//
+// Independent of wr_constellation on purpose: a field of quiet lights behind
+// the ring is worth having whether or not anything is expanded.
+user int   wr_stars       = 0;
+
+// How bright the field is allowed to get at its peak twinkle. Deliberately
+// low -- these are BEHIND the data and must never compete with it.
+user float wr_stars_alpha = 0.5;
+
 // Leans the tops toward you.
 user float wr_tilt     = 12.0;
 
