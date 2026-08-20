@@ -1285,7 +1285,28 @@ class wr_Rig : EventHandler
 		bool hasHs; int trHs;
 		[hasHs, trHs] = wr_StatTracker.HeadshotsOf(w);
 		if (hasHs)
-			sheetRow(String.Format("HEADSHOTS %d", trHs), trHs > 0 ? color(SHEET_HOT) : color(SHEET_DIM));
+		{
+			// As a SHARE OF HITS, not of shots. A shot that missed entirely
+			// could never have been a headshot, so dividing by shots fired
+			// measures aim and accuracy tangled together and reads low for
+			// reasons that have nothing to do with where you were aiming.
+			// Only shown once there are hits to be a share OF -- until then
+			// the bare count is the whole truth.
+			int hsPct = trHits > 0 ? (trHs * 100 / trHits) : 0;
+			sheetRow(hasBasics && trHits > 0
+			           ? String.Format("HEADSHOTS %d  (%d%%)", trHs, hsPct)
+			           : String.Format("HEADSHOTS %d", trHs),
+			         trHs > 0 ? color(SHEET_HOT) : color(SHEET_DIM));
+		}
+
+		// TIME HELD -- the row that turns a pile of counters into a run's
+		// worth of history. Deliberately last of the tracked rows: it is the
+		// one you read once out of curiosity rather than the one you check
+		// mid-fight, so it sits below the numbers that inform a pick.
+		bool hasHeld; int trHeld;
+		[hasHeld, trHeld] = wr_StatTracker.HeldTimeOf(w);
+		if (hasHeld)
+			sheetRow("HELD " .. wr_StatTracker.HeldWord(trHeld), SHEET_DIM);
 
 		if (isRS && cv("wr_sheet_stats", 1.0) > 0.0) rsRows(w);
 		else                                        setSheetBar(0, SHEET_MEAS, false);

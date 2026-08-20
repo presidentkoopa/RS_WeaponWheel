@@ -45,6 +45,13 @@ class wr_WeaponStats
 	int hits;
 	int headshots;
 
+	// TIME HELD, in tics, counted only while this weapon is actually in a
+	// hand. Not "time since you picked it up" -- a gun sitting in your
+	// backpack for two maps has not been used for two maps, and the number
+	// is only worth showing because it says how much of the run you have
+	// actually spent behind THIS weapon.
+	int ticsHeld;
+
 	double damageSum;
 	int damageSamples;
 
@@ -182,6 +189,13 @@ class wr_StatEvents : EventHandler
 
 		let s = wr_StatLedger.StatsFor(pawn, w, true);
 		if (!s) return;
+
+		// TIME HELD. This function already runs once per tic for each of the
+		// two hands' weapons and for nothing else, which makes it exactly the
+		// right place to count: a weapon reaches here if and only if it is
+		// actually in a hand this tic, so the counter can never accrue for a
+		// gun sitting in the backpack.
+		s.ticsHeld++;
 
 		int a1 = w.Ammo1 ? w.Ammo1.Amount : 0;
 		int a2 = w.Ammo2 ? w.Ammo2.Amount : 0;
@@ -364,6 +378,34 @@ class wr_StatTracker
 		let s = lookup(w);
 		if (!s || s.rofEma <= 0.0) return false, 0.0;
 		return true, 35.0 / s.rofEma;
+	}
+
+	// FOUND, TICS HELD. Found once the weapon has been in a hand for at
+	// least a second -- a gun you flicked past for four tics reporting
+	// "HELD 0s" is noise, and the row is worth a slot only once there is a
+	// real span behind it.
+	static play bool, int HeldTimeOf(Weapon w)
+	{
+		let s = lookup(w);
+		if (!s || s.ticsHeld < 35) return false, 0;
+		return true, s.ticsHeld;
+	}
+
+	// Tics as a span a person reads at a glance rather than a raw count.
+	// Coarsens as it grows -- seconds while it is seconds, minutes once it
+	// is minutes, and hours-and-minutes past an hour, dropping the seconds
+	// entirely there. Nobody reading "three hours on the revolver" cares
+	// about the seconds, and carrying them would only cost the row width
+	// the useful part needs.
+	static string HeldWord(int tics)
+	{
+		int secs = tics / 35;
+		if (secs < 60)    return String.Format("%ds", secs);
+
+		int mins = secs / 60;
+		if (mins < 60)    return String.Format("%dm %ds", mins, secs % 60);
+
+		return String.Format("%dh %dm", mins / 60, mins % 60);
 	}
 
 	// FOUND(mod loaded), COUNT. Found means "Headshots is loaded", not
