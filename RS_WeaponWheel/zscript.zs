@@ -22,6 +22,22 @@
 // the other three compat files it never touches the title row.
 #include "wr_compat_pandemonium.zs"
 
+// wr_compat_guncaster.zs -- reading Guncaster's player-side resource pools
+// (spell cooldown, charge/hover/glide/stomp/curse). No per-weapon tier
+// here at all -- Guncaster is one class with no rarity system -- so this
+// reads the WEAPON'S OWNER, not the weapon, and never touches the title row.
+#include "wr_compat_guncaster.zs"
+
+// wr_compat_metadoom.zs -- reading MetaDoom's two real per-weapon
+// escalation mechanics (plasma rifle heat, Unmaker demon keys). No tier
+// ladder in this mod either, so this never touches the title row.
+#include "wr_compat_metadoom.zs"
+
+// wr_compat_borderdoom.zs -- reading BorderDoom's cached per-weapon stat
+// arrays via array-element field reflection, NOT the mutating ACS
+// GetCurrentDamage family. No tier row, purely supplementary.
+#include "wr_compat_borderdoom.zs"
+
 // Wrist rig -- weapon cards in a ring around one hand, taken by pointing at
 // one and pulling the trigger, or by reaching into it.
 //
@@ -1055,6 +1071,73 @@ class wr_Rig : EventHandler
 		[hasSup, supText] = wr_CompatPandemonium.SuperiorOf(w);
 		if (hasSup)
 			sheetRow("SUPERIOR " .. (supText.Length() > 26 ? (supText.Left(23) .. "...") : supText), SHEET_HOT);
+
+		// Guncaster's player-side resource pools -- see wr_compat_guncaster.zs.
+		// No per-weapon tier in this mod at all, so this reads the weapon's
+		// OWNER, not the weapon, for every field.
+		bool hasCd; double spellCd;
+		[hasCd, spellCd] = wr_CompatGuncaster.SpellCooldownOf(w);
+		if (hasCd)
+			sheetRow(String.Format("SPELL CD %.1fs", spellCd), SHEET_LOCK);
+
+		string gcRes = wr_CompatGuncaster.ResourcesOf(w);
+		if (gcRes.Length() > 0)
+			sheetRow(gcRes, SHEET_TEXT);
+
+		// MetaDoom's plasma rifle heat and Unmaker demon keys -- see
+		// wr_compat_metadoom.zs. Neither is a tier either.
+		bool hasHeat; int heat, heatShots;
+		[hasHeat, heat, heatShots] = wr_CompatMetaDoom.HeatOf(w);
+		if (hasHeat)
+			sheetRow(heat >= 5 ? "HEAT 5/5  OVERCHARGE READY"
+			                   : String.Format("HEAT %d/5  (%d/10)", heat, heatShots % 10),
+			         heat >= 5 ? color(SHEET_HOT) : color(SHEET_MEAS));
+
+		bool hasKeys; int keys;
+		[hasKeys, keys] = wr_CompatMetaDoom.KeysOf(w);
+		if (hasKeys)
+			sheetRow(String.Format("KEYS %d/3", keys), keys > 0 ? color(SHEET_HOT) : color(SHEET_DIM));
+
+		// Doomablo's PLAYER advancement -- see wr_compat_doomablo.zs. A
+		// second axis independent of the weapon's own rarity above, so
+		// checked and shown regardless of whether this weapon rolled a
+		// rarity at all.
+		bool hasLvl; int dblLvl; double dblXp, dblXpNext; int dblPoints;
+		[hasLvl, dblLvl, dblXp, dblXpNext, dblPoints] = wr_CompatDoomablo.LevelOf(w);
+		if (hasLvl)
+			sheetRow(String.Format("LVL %d  %.0f/%.0f XP%s", dblLvl, dblXp, dblXpNext,
+			                       dblPoints > 0 ? String.Format("  +%d PTS", dblPoints) : ""),
+			         dblPoints > 0 ? color(SHEET_HOT) : color(SHEET_MEAS));
+
+		bool hasInferno; int inferno;
+		[hasInferno, inferno] = wr_CompatDoomablo.InfernoLevelOf(w);
+		if (hasInferno)
+			sheetRow(String.Format("INFERNO %d", inferno), SHEET_TEXT);
+
+		// Doomablo's five rolled player stats -- array-element reflection,
+		// same as BorderDoom below. Vitality/CritChance/CritDmg/Strength
+		// are already effective values (base + item bonuses); RareFind
+		// isn't a combat stat but belongs with the others, same array.
+		bool hasStats; int dblVit, dblCrc, dblCrd, dblStr, dblRf;
+		[hasStats, dblVit, dblCrc, dblCrd, dblStr, dblRf] = wr_CompatDoomablo.StatsOf(w);
+		if (hasStats)
+		{
+			sheetRow(String.Format("VIT %d  STR %d  FIND %d", dblVit, dblStr, dblRf), SHEET_TEXT);
+			sheetRow(String.Format("CRIT %d%%  CRITDMG %d%%", dblCrc, dblCrd), SHEET_TEXT);
+		}
+
+		// BorderDoom's cached per-weapon stats -- see wr_compat_borderdoom.zs.
+		// Read off the ARRAY the mutating GetCurrentDamage family writes
+		// into, never the ACS calls themselves. No tier row -- BorderDoom
+		// has no rarity system, confirmed, and "LVL" here is a rolled
+		// weapon-instance stat, not a colour-worthy rarity tier.
+		bool hasBD; int bdDmg, bdAcc, bdRof, bdRcl, bdClip, bdLvl;
+		[hasBD, bdDmg, bdAcc, bdRof, bdRcl, bdClip, bdLvl] = wr_CompatBorderDoom.StatsOf(w);
+		if (hasBD)
+		{
+			sheetRow(String.Format("DMG %d  ACC %d  LVL %d", bdDmg, bdAcc, bdLvl), SHEET_MEAS);
+			sheetRow(String.Format("ROF %d  RECOIL %d  CLIP %d", bdRof, bdRcl, bdClip), SHEET_TEXT);
+		}
 
 		if (isRS && cv("wr_sheet_stats", 1.0) > 0.0) rsRows(w);
 		else                                        setSheetBar(0, SHEET_MEAS, false);

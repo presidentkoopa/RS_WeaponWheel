@@ -121,4 +121,114 @@ class wr_CompatDoomablo
 		if (!found) return false, none;
 		return true, RarityColor(rarity);
 	}
+
+	//==========================================================================
+	// PLAYER ADVANCEMENT. Doomablo's own README calls this out directly:
+	// "Player experience levels and upgradable player stats" -- a second,
+	// PLAYER-side axis entirely independent of the weapon's own rarity.
+	//
+	// TWO-HOP REFLECTION -- new in this file, not needed anywhere else in
+	// this mod. currentExpLevel/currentExperience are plain fields, but
+	// they live on RwPlayerStats (zscript/player/player_stats/
+	// player_stats.zs), a bare Object -- not an Actor -- reached through a
+	// `RwPlayerStats stats;` field on RwPlayer (zscript/player/
+	// base_player.zs, the actual player-pawn class). So this is
+	// GetFieldObject(owner, "stats", ...) to get that object, THEN
+	// GetFieldInt/Float on the result -- one extra indirection field
+	// reflection handles the same way regardless of depth, since the
+	// natives take a plain Object, not specifically an Actor.
+	//
+	// XP-TO-NEXT-LEVEL IS COMPUTED, NOT READ. getRequiredXPForNextLevel()
+	// is a method, unreachable the same way Affix.getName() is (see the
+	// file header) -- but unlike an affix name, its underlying function
+	// (getRequiredXPForLevel, experience.zs) is `clearscope static` with a
+	// small closed-form formula and no hidden state, so it is reproduced
+	// here rather than needing to be called. If Doomablo ever changes the
+	// curve, this drifts out of sync silently -- there is no way to detect
+	// that without calling the real method, which remains impossible.
+	const XP_EXPONENT_BASE   = 1.25;
+	const XP_MULT_EVERY      = 7.0;
+	const XP_BASE_AMOUNT     = 300.0;
+	const XP_ADD_PER_LEVEL   = 200.0;
+
+	private static double xpForLevel(int lvl)
+	{
+		lvl -= 2;
+		if (lvl < 0) return 1.0;
+		double addition = double(lvl) * XP_ADD_PER_LEVEL;
+		return double(int((XP_BASE_AMOUNT + addition) * (XP_EXPONENT_BASE ** (double(lvl) / XP_MULT_EVERY))));
+	}
+
+	// FOUND, LEVEL, CURRENT XP, XP TO NEXT, UNSPENT POINTS.
+	static bool, int, double, double, int LevelOf(Weapon w)
+	{
+		int none4; double noneD; int none2;
+		if (!w || !w.Owner || cv("wr_dbl_compat", 1.0) <= 0.0) return false, 0, 0.0, 0.0, 0;
+
+		Object stats;
+		if (!level.GetFieldObject(w.Owner, "stats", stats) || stats == null)
+			return false, 0, 0.0, 0.0, 0;
+
+		int lvl; double xp; int points;
+		if (!level.GetFieldInt(stats, "currentExpLevel", lvl)) return false, 0, 0.0, 0.0, 0;
+		level.GetFieldFloat(stats, "currentExperience", xp);
+		level.GetFieldInt(stats, "statPointsAvailable", points);
+
+		return true, lvl, xp, xpForLevel(lvl + 1), points;
+	}
+
+	// FOUND, INFERNO LEVEL. Doomablo's own "Game Level" -- scales monster
+	// difficulty AND loot quality together, so it's the single number that
+	// answers "how dangerous and how rewarding is this run right now".
+	// Plain field, directly on RwPlayer -- no nested object needed for
+	// this one.
+	static bool, int InfernoLevelOf(Weapon w)
+	{
+		int inferno;
+		if (!w || !w.Owner || cv("wr_dbl_compat", 1.0) <= 0.0) return false, 0;
+		if (!level.GetFieldInt(w.Owner, "infernoLevel", inferno)) return false, 0;
+		return true, inferno;
+	}
+
+	// FIVE ROLLED PLAYER STATS -- Vitality/CritChance/CritDmg/Strength/
+	// RareFind. currentStats[totalStatsCount] on RwPlayerStats
+	// (player_stats.zs) is a fixed int array (base stat + every item
+	// bonus already applied), which GetFieldInt correctly refused --
+	// unblocked this session by GetFieldIntArray (FORK_CHANGES.md #40),
+	// added specifically because this array and BorderDoom's equipped-item
+	// arrays hit the identical wall in the same pass. Same two-hop shape
+	// as LevelOf(): GetFieldObject for the nested RwPlayerStats, then
+	// GetFieldIntArray on the result.
+	//
+	// Only the five NON-HIDDEN stats (RwPlayerStats.nonHiddenStatsCount,
+	// player_stats.zs) -- the two beyond that (ReloadSpeedBonus,
+	// RateOfFireBonus) are the mod's own "not in any menus, given only by
+	// items" pair, so the sheet respects the same visibility split
+	// Doomablo's own UI already draws rather than showing the player
+	// numbers their own menus deliberately hide.
+	const STAT_VITALITY    = 0;
+	const STAT_CRITCHANCE  = 1;
+	const STAT_CRITDMG     = 2;
+	const STAT_STRENGTH    = 3;
+	const STAT_RAREFIND    = 4;
+
+	static bool, int, int, int, int, int StatsOf(Weapon w)
+	{
+		int none;
+		if (!w || !w.Owner || cv("wr_dbl_compat", 1.0) <= 0.0) return false, 0, 0, 0, 0, 0;
+
+		Object stats;
+		if (!level.GetFieldObject(w.Owner, "stats", stats) || stats == null)
+			return false, 0, 0, 0, 0, 0;
+
+		int vit, crc, crd, str, rf;
+		bool got = level.GetFieldIntArray(stats, "currentStats", STAT_VITALITY, vit);
+		level.GetFieldIntArray(stats, "currentStats", STAT_CRITCHANCE, crc);
+		level.GetFieldIntArray(stats, "currentStats", STAT_CRITDMG,    crd);
+		level.GetFieldIntArray(stats, "currentStats", STAT_STRENGTH,   str);
+		level.GetFieldIntArray(stats, "currentStats", STAT_RAREFIND,   rf);
+		if (!got) return false, 0, 0, 0, 0, 0;
+
+		return true, vit, crc, crd, str, rf;
+	}
 }

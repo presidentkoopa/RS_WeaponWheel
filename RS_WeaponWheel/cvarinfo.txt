@@ -503,6 +503,23 @@ user bool  wr_dbl_compat = true;
 // wr_tier_color -- purely the three extra rows it adds.
 user bool  wr_pand_compat = true;
 
+// Guncaster's player-side resource pools (spell cooldown, charge, hover,
+// glide, stomp, curse) -- see wr_compat_guncaster.zs. No per-weapon tier in
+// this mod at all -- it is one class with no rarity system -- so this
+// reads the weapon's OWNER, not the weapon, and never touches the title
+// row or wr_tier_color.
+user bool  wr_gc_compat = true;
+
+// MetaDoom's plasma rifle heat and Unmaker demon keys -- see
+// wr_compat_metadoom.zs. No tier ladder in this mod either.
+user bool  wr_meta_compat = true;
+
+// BorderDoom's cached per-weapon stats (damage/accuracy/firerate/recoil/
+// clip/level) -- see wr_compat_borderdoom.zs. Read off the array the
+// mutating GetCurrentDamage family writes into as a side effect, never
+// that ACS call itself -- see the file header for why. No tier row.
+user bool  wr_bd_compat = true;
+
 
 // THE GUN'S OWN READOUT
 //
