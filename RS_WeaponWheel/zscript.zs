@@ -51,6 +51,13 @@
 // GetCurrentDamage family. No tier row, purely supplementary.
 #include "wr_compat_borderdoom.zs"
 
+// wr_stattracker.zs -- kills, shots fired, accuracy, headshots (if that mod
+// is loaded), and an observed damage/rate-of-fire estimate for weapons that
+// don't already expose a real one. Not a compat file -- nothing else
+// computes any of this, so it's tracked from scratch, per weapon INSTANCE,
+// off this wheel's own EventHandler.
+#include "wr_stattracker.zs"
+
 // Wrist rig -- weapon cards in a ring around one hand, taken by pointing at
 // one and pulling the trigger, or by reaching into it.
 //
@@ -1209,6 +1216,51 @@ class wr_Rig : EventHandler
 			sheetRow(String.Format("DMG %d  ACC %d  LVL %d", bdDmg, bdAcc, bdLvl), SHEET_MEAS);
 			sheetRow(String.Format("ROF %d  RECOIL %d  CLIP %d", bdRof, bdRcl, bdClip), SHEET_TEXT);
 		}
+
+		// This wheel's own kill/shot/accuracy/headshot tracker -- see
+		// wr_stattracker.zs. Everything above this point is a READ of data
+		// some other mod already computed; nothing anywhere computes THIS,
+		// so it is tracked from scratch off WorldThingDamaged/WorldThingDied/
+		// ammo-drain, keyed per weapon INSTANCE, and applies to every weapon
+		// on the sheet regardless of which mod (if any) it came from.
+		bool hasBasics; int trKills, trShots, trHits;
+		[hasBasics, trKills, trShots, trHits] = wr_StatTracker.BasicsOf(w);
+		if (hasBasics)
+		{
+			int acc = trShots > 0 ? (trHits * 100 / trShots) : 0;
+			sheetRow(String.Format("KILLS %d  SHOTS %d  ACC %d%%", trKills, trShots, acc), SHEET_TEXT);
+		}
+
+		// DAMAGE/RATE OF FIRE are an ESTIMATE, not a read, and only shown
+		// when nothing on the sheet already has the real number -- RS
+		// Weapon's own DPS/ROF (rsRows, below) and BorderDoom's cached
+		// stats (above) are both authoritative; this is a fallback for
+		// everything else, including genuinely vanilla weapons. Marked
+		// with "~" for the same reason a curse masks with "???" rather
+		// than a wrong number dressed as a real one.
+		if (!isRS && !hasBD)
+		{
+			bool hasDmg; double trDmg; int trDmgN;
+			[hasDmg, trDmg, trDmgN] = wr_StatTracker.DamageOf(w);
+			bool hasRof; double trRof;
+			[hasRof, trRof] = wr_StatTracker.RofOf(w);
+
+			if (hasDmg && hasRof)
+				sheetRow(String.Format("DMG ~%d/hit  ROF ~%.1f/s", int(trDmg), trRof), SHEET_MEAS);
+			else if (hasDmg)
+				sheetRow(String.Format("DMG ~%d/hit", int(trDmg)), SHEET_MEAS);
+			else if (hasRof)
+				sheetRow(String.Format("ROF ~%.1f/s", trRof), SHEET_MEAS);
+		}
+
+		// HEADSHOTS -- only when that mod is actually loaded (Object.FindClass
+		// check inside HeadshotsOf()), shown even at zero once it is, the
+		// same honesty rule every other conditional row on this sheet
+		// follows: present-but-zero is real information, absent is not.
+		bool hasHs; int trHs;
+		[hasHs, trHs] = wr_StatTracker.HeadshotsOf(w);
+		if (hasHs)
+			sheetRow(String.Format("HEADSHOTS %d", trHs), trHs > 0 ? color(SHEET_HOT) : color(SHEET_DIM));
 
 		if (isRS && cv("wr_sheet_stats", 1.0) > 0.0) rsRows(w);
 		else                                        setSheetBar(0, SHEET_MEAS, false);
@@ -6242,20 +6294,31 @@ class wr_Rig : EventHandler
 	// touched. Deliberately much larger than a card -- it is one panel you
 	// read, not one of nine you glance at.
 	const SHEET_W_CARDS    = 2.6;
-	const SHEET_H_CARDS    = 3.2;
+	// Grown from 3.2 -- the stat tracker (wr_stattracker.zs) added three
+	// more possible rows (kills/shots/accuracy, damage/rate of fire,
+	// headshots) to what the sheet always had room for. ROW_FRAC and PITCH
+	// shrank in the same move, by just enough that an EXISTING row's
+	// absolute size on screen is unchanged (sh * ROW_FRAC is the same
+	// number as before, sh just got bigger to make room for more of them)
+	// -- this is a taller, narrower plate fitting more of the same-size
+	// rows, not the same plate with smaller text crammed in.
+	const SHEET_H_CARDS    = 3.9;
 	const SHEET_GAP_CARDS  = 0.55;   // daylight between ring and sheet
 	const SHEET_TITLE_FRAC = 0.085;  // title height, of sheet height
-	const SHEET_ROW_FRAC   = 0.055;  // one row's height
+	const SHEET_ROW_FRAC   = 0.045;  // one row's height
 	const SHEET_ROWS_TOP   = 0.21;   // where the first row starts, from the top
-	const SHEET_ROW_PITCH  = 1.45;   // row spacing as a multiple of row height
+	const SHEET_ROW_PITCH  = 1.30;   // row spacing as a multiple of row height
 
 	// How many row billboards the sheet allocates, once, up front.
 	//
 	// layoutSheet steps rows down on a fixed pitch and bars continue the same
-	// cursor, so the plate holds ten elements before the eleventh renders off
-	// its bottom edge. Nine rows plus one bar is exactly that budget. A tenth
-	// row would not error -- it would silently draw into the room.
-	const SHEET_ROW_POOL   = 9;
+	// cursor, so the plate holds thirteen elements before the fourteenth
+	// renders off its bottom edge (12 * ROW_FRAC * PITCH + one bar's worth
+	// ~= 0.76 of the 0.79 available below the title, leaving a margin
+	// rather than sitting exactly on the edge). Twelve rows plus one bar is
+	// that budget. A row past it would not error -- it would silently draw
+	// into the room, same as before this grew.
+	const SHEET_ROW_POOL   = 12;
 
 	const SHEET_BG     = 0x0E1016;
 	const SHEET_BG2    = 0x1B2030;
