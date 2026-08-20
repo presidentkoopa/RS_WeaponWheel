@@ -1,31 +1,42 @@
-// PANDEMONIUM (INSURRECTION) COMPATIBILITY.
+// PANDEMONIA -- INSURRECTION ADDON COMPATIBILITY.
 //
-// Pandemonium is a suite of separate packages -- Anarchy, Ascension,
-// Insurrection, Renovation, Monsters -- and only one of them matters here.
-// Anarchy's own weapons (e.g. "Class DustQuadShotgun : DustSuperShotgun",
-// PandAWZS/Weapons/Slot3/QuadShotgun.txt) do not use the class this file
-// reads at all. Insurrection's own roster does: every Insurrection weapon
-// is a "PandInsWeapon : ZWeapon : Weapon" (PandIZS/BaseActors.txt,
-// PandIZS/zwl/zweapon.zs), and THAT class is where all of this lives.
+// Insurrection is a weapon/augment expansion addon for the base Pandemonia
+// mod (see wr_compat_pandemonia.zs's header for how the whole family --
+// Anarchy, Ascension, Insurrection, Renovation -- fits together;
+// "Pandemonium," this file's old name, was this fork's own earlier
+// misnomer for the family). Its own roster is a COMPLETELY SEPARATE weapon
+// class hierarchy from base Pandemonia's: every Insurrection weapon is a
+// "PandInsWeapon : ZWeapon : Weapon" (PandIZS/BaseActors.txt, PandIZS/zwl/
+// zweapon.zs), not a PandWeapon subclass, so this file's fields never
+// overlap with wr_compat_pandemonia.zs's -- Anarchy's own weapons (e.g.
+// "Class DustQuadShotgun : DustSuperShotgun", PandAWZS/Weapons/Slot3/
+// QuadShotgun.txt) do not use this class either.
 //
 // NO RARITY OR TIER CONCEPT EXISTS HERE -- checked, same as MetaDoom/
-// Guncaster/Pandemonium's own Anarchy/Weapons pack. What Insurrection has
-// instead is an AUGMENT system: up to a per-weapon cap (maxaugs) of
-// stacked upgrades across eleven named types, plus an independent
-// DURABILITY system, plus a one-off "Superior" augment that carries its
-// own free-text description already written for that specific weapon.
-// None of this is a tier/rarity ladder, so unlike wr_compat_legendoom.zs/
-// wr_compat_drla.zs/wr_compat_doomablo.zs, this file never touches the
-// sheet's title row or tierColorOf()/cardColorFor() -- purely supplementary
-// rows, same relationship DRLA's Mod Station read has to DRLA's own tier.
+// Guncaster/base Pandemonia. What Insurrection has instead is an AUGMENT
+// system: up to a per-weapon cap (maxaugs) of stacked upgrades across
+// eleven named types, an independent DURABILITY system (a separate field
+// set from base Pandemonia's own), a one-off "Superior" augment carrying
+// its own free-text description, a per-weapon color-tag string, a generic
+// combo/charge-bar mechanic a handful of weapons opt into, and one
+// weapon-specific leveling mechanic found on a later pass (the Sacrosanct
+// Aeonstave). None of this is a tier/rarity ladder, so like
+// wr_compat_pandemonia.zs this never touches the sheet's title row or
+// tierColorOf()/cardColorFor() -- purely supplementary rows, same
+// relationship DRLA's Mod Station read has to DRLA's own tier.
 //
 // EVERY FIELD HERE IS PLAIN -- no owned-item walk, no class-ancestry climb.
 // Read the same way RS_Main's Tier and Doomablo's generatedRarity are, via
 // this fork's field reflection natives, because Insurrection is real
 // ZScript and simply declared these as ordinary int/bool/string fields on
 // the class every one of its weapons inherits from.
-class wr_CompatPandemonium
+class wr_CompatPandemoniaInsurrection
 {
+	// The Sacrosanct Aeonstave's charge cap -- exposed as a named constant
+	// rather than a magic number duplicated at every call site, same
+	// pattern wr_compat_doomablo.zs uses for its XP-curve constants.
+	const AEON_CHARGE_MAX = 40;
+
 	private static double cv(string name, double fallback)
 	{
 		let c = CVar.FindCVar(name);
@@ -127,5 +138,50 @@ class wr_CompatPandemonium
 		if (!active(w) || !level.GetFieldBool(w, "gotsupped", gotI) || gotI == 0) return false, "";
 		if (!level.GetFieldString(w, "sup_string", txt)) return false, "";
 		return true, txt;
+	}
+
+	// FOUND, TAG. coltag (BaseActors.txt) is a per-weapon color-tag string
+	// Insurrection itself writes -- the closest thing to a rarity color
+	// anywhere in the Pandemonia family, though it is not gated by a real
+	// tier ladder the way LegenDoom's/DRLA's/Doomablo's actually are, so
+	// this stays a supplementary text row rather than touching
+	// tierColorOf()/cardColorFor().
+	static bool, string ColorTagOf(Weapon w)
+	{
+		string tag;
+		if (!active(w) || !level.GetFieldString(w, "coltag", tag) || tag.Length() == 0) return false, "";
+		return true, tag;
+	}
+
+	// FOUND(HasComboBar), CURRENT, MAX. wepbar/wepbarmax (BaseActors.txt)
+	// default to 0/0 on the base class -- most Insurrection weapons never
+	// touch them, only a handful of melee weapons (Silver Gauntlets,
+	// Flayer Wristblade) actually drive wepbar up in combat toward a buff
+	// payoff at wepbarmax. "Found" means wepbarmax > 0, the same "this
+	// weapon actually opts in" gate wr_compat_pandemonia.zs's
+	// MagazineOf() uses for magSize.
+	static bool, int, int ComboOf(Weapon w)
+	{
+		int cur, max;
+		if (!active(w) || !level.GetFieldInt(w, "wepbarmax", max) || max <= 0) return false, 0, 0;
+		level.GetFieldInt(w, "wepbar", cur);
+		return true, cur, max;
+	}
+
+	// FOUND, LEVEL, CHARGE. chaoschargelevel/chargeamt exist on exactly
+	// one weapon, the Sacrosanct Aeonstave (PandIZS/Weapons/Slot8/
+	// SacrosanctAeonstave.txt) -- declared on that specific subclass, not
+	// the shared PandInsWeapon base, so reflection naturally gates this to
+	// the one weapon that actually has the fields; no class-name check
+	// needed, same reasoning wr_compat_metadoom.zs's HeatOf() relies on.
+	// Picking up Chaotic Essence ammo fills chargeamt toward a fixed cap
+	// of AEON_CHARGE_MAX; hitting it auto-levels chaoschargelevel (0-4)
+	// and unlocks a new fire mode.
+	static bool, int, int AeonstaveOf(Weapon w)
+	{
+		int lvl, amt;
+		if (!active(w) || !level.GetFieldInt(w, "chaoschargelevel", lvl)) return false, 0, 0;
+		level.GetFieldInt(w, "chargeamt", amt);
+		return true, lvl, amt;
 	}
 }

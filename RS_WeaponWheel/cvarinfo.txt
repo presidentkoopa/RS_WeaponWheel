@@ -497,10 +497,16 @@ user bool  wr_drla_mods = true;
 // own switch rather than folding into wr_tier_color.
 user bool  wr_dbl_compat = true;
 
-// Pandemonium Insurrection's augments, durability and Superior augment
-// text -- see wr_compat_pandemonium.zs. No rarity/tier concept in this
-// mod, so unlike the three above this never touches the title row or
-// wr_tier_color -- purely the three extra rows it adds.
+// The whole Pandemonia family -- base game (durability/magazine/sidegrade/
+// Game Level, wr_compat_pandemonia.zs), Anarchy (the Anarchic Sigil,
+// wr_compat_pandemonia_anarchy.zs), and Insurrection (augments, durability,
+// Superior text, color tag, combo bar, Sacrosanct Aeonstave leveling,
+// wr_compat_pandemonia_insurrection.zs -- formerly wr_compat_pandemonium.zs,
+// "Pandemonium" was this fork's own earlier misnomer for the family name).
+// One shared switch rather than three, since a player either has the
+// family loaded or doesn't. No rarity/tier concept anywhere in it, so
+// unlike the three compat switches above this never touches the title row
+// or wr_tier_color -- purely the extra rows it adds.
 user bool  wr_pand_compat = true;
 
 // Guncaster's player-side resource pools (spell cooldown, charge, hover,

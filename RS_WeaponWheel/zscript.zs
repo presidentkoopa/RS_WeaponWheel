@@ -17,10 +17,23 @@
 // wr_compat_doomablo.zs -- reading Doomablo's own rarity field.
 #include "wr_compat_doomablo.zs"
 
-// wr_compat_pandemonium.zs -- reading Pandemonium Insurrection's augment
-// and durability fields. No rarity/tier concept in this one, so unlike
-// the other three compat files it never touches the title row.
-#include "wr_compat_pandemonium.zs"
+// wr_compat_pandemonia.zs -- reading base Pandemonia's own durability/
+// magazine/sidegrade fields and its player-wide Game Level counter. No
+// rarity/tier concept in this one, so unlike the first three compat files
+// it never touches the title row.
+#include "wr_compat_pandemonia.zs"
+
+// wr_compat_pandemonia_anarchy.zs -- reading the Anarchic Sigil, the one
+// real player-leveling item in the Anarchy addon. Independent of whichever
+// Pandemonia-family weapon is in hand, so read off the OWNER.
+#include "wr_compat_pandemonia_anarchy.zs"
+
+// wr_compat_pandemonia_insurrection.zs -- reading the Insurrection addon's
+// augment/durability/combo-bar/color-tag fields (formerly named
+// wr_compat_pandemonium.zs -- "Pandemonium" was this fork's own misnomer
+// for the mod family, corrected once the whole family was surveyed). No
+// rarity/tier concept in this one either.
+#include "wr_compat_pandemonia_insurrection.zs"
 
 // wr_compat_guncaster.zs -- reading Guncaster's player-side resource pools
 // (spell cooldown, charge/hover/glide/stomp/curse). No per-weapon tier
@@ -1046,31 +1059,89 @@ class wr_Rig : EventHandler
 		if (drlaModMask != 0)
 			sheetRow("MOD " .. wr_CompatDRLA.ModsWord(drlaModMask, drlaModMask2), SHEET_TEXT);
 
-		// Pandemonium Insurrection's augments, durability and Superior
-		// text -- see wr_compat_pandemonium.zs. No tier concept in this
-		// mod, so none of this touched the title row above; these three
-		// are purely supplementary, each independently gated the same way
-		// DRLA's mod row is.
+		// Pandemonia Insurrection's augments, durability, Superior text,
+		// color tag, combo bar and the Sacrosanct Aeonstave's own leveling
+		// -- see wr_compat_pandemonia_insurrection.zs. No tier concept in
+		// this mod, so none of this touched the title row above; every one
+		// of these is purely supplementary, each independently gated the
+		// same way DRLA's mod row is.
 		bool hasAugs; int curAugs, maxAugs;
-		[hasAugs, curAugs, maxAugs] = wr_CompatPandemonium.CountOf(w);
+		[hasAugs, curAugs, maxAugs] = wr_CompatPandemoniaInsurrection.CountOf(w);
 		if (hasAugs && curAugs > 0)
 		{
-			string breakdown = wr_CompatPandemonium.BreakdownOf(w);
+			string breakdown = wr_CompatPandemoniaInsurrection.BreakdownOf(w);
 			sheetRow(breakdown.Length() ? String.Format("AUG %d/%d  %s", curAugs, maxAugs, breakdown)
 			                            : String.Format("AUG %d/%d", curAugs, maxAugs), SHEET_TEXT);
 		}
 
-		bool hasDura; int dura, duraMax; bool duraBroken;
-		[hasDura, dura, duraMax, duraBroken] = wr_CompatPandemonium.DurabilityOf(w);
-		if (hasDura)
-			sheetRow(String.Format("DURA %d/%d", dura, duraMax),
-			         duraBroken ? color(SHEET_LOCK)
-			                    : (duraMax > 0 && dura * 4 < duraMax) ? color(COLOR_AMMO_DRY) : color(SHEET_MEAS));
+		bool hasColTag; string colTag;
+		[hasColTag, colTag] = wr_CompatPandemoniaInsurrection.ColorTagOf(w);
+		if (hasColTag)
+			sheetRow("TAG " .. colTag, SHEET_TEXT);
+
+		bool hasDuraI; int duraI, duraMaxI; bool duraBrokenI;
+		[hasDuraI, duraI, duraMaxI, duraBrokenI] = wr_CompatPandemoniaInsurrection.DurabilityOf(w);
+		if (hasDuraI)
+			sheetRow(String.Format("DURA %d/%d", duraI, duraMaxI),
+			         duraBrokenI ? color(SHEET_LOCK)
+			                     : (duraMaxI > 0 && duraI * 4 < duraMaxI) ? color(COLOR_AMMO_DRY) : color(SHEET_MEAS));
 
 		bool hasSup; string supText;
-		[hasSup, supText] = wr_CompatPandemonium.SuperiorOf(w);
+		[hasSup, supText] = wr_CompatPandemoniaInsurrection.SuperiorOf(w);
 		if (hasSup)
 			sheetRow("SUPERIOR " .. (supText.Length() > 26 ? (supText.Left(23) .. "...") : supText), SHEET_HOT);
+
+		bool hasCombo; int comboCur, comboMax;
+		[hasCombo, comboCur, comboMax] = wr_CompatPandemoniaInsurrection.ComboOf(w);
+		if (hasCombo)
+			sheetRow(String.Format("COMBO %d/%d", comboCur, comboMax),
+			         comboCur >= comboMax ? color(SHEET_HOT) : color(SHEET_MEAS));
+
+		bool hasAeon; int aeonLvl, aeonChg;
+		[hasAeon, aeonLvl, aeonChg] = wr_CompatPandemoniaInsurrection.AeonstaveOf(w);
+		if (hasAeon)
+			sheetRow(String.Format("AEON LVL %d  %d/%d", aeonLvl, aeonChg, wr_CompatPandemoniaInsurrection.AEON_CHARGE_MAX),
+			         SHEET_TEXT);
+
+		// Base Pandemonia's own durability/magazine/sidegrade system --
+		// see wr_compat_pandemonia.zs. A completely separate field set
+		// from Insurrection's above (different class hierarchy), so at
+		// most one of the two DURA rows can ever fire for a given weapon
+		// -- they share the same label on purpose, since the player is
+		// never looking at both mods' weapons in the same hand at once.
+		bool hasDuraP; int duraP, duraMaxP; bool duraBrokenP;
+		[hasDuraP, duraP, duraMaxP, duraBrokenP] = wr_CompatPandemonia.DurabilityOf(w);
+		if (hasDuraP)
+			sheetRow(String.Format("DURA %d/%d", duraP, duraMaxP),
+			         duraBrokenP ? color(SHEET_LOCK)
+			                     : (duraMaxP > 0 && duraP * 4 < duraMaxP) ? color(COLOR_AMMO_DRY) : color(SHEET_MEAS));
+
+		bool hasMagP; int magCurP, magMaxP;
+		[hasMagP, magCurP, magMaxP] = wr_CompatPandemonia.MagazineOf(w);
+		if (hasMagP)
+			sheetRow(String.Format("MAG %d/%d", magCurP, magMaxP), SHEET_MEAS);
+
+		bool hasSideP, s1P, s2P; string sideLabelP;
+		[hasSideP, s1P, s2P, sideLabelP] = wr_CompatPandemonia.SidegradesOf(w);
+		if (hasSideP)
+			sheetRow(sideLabelP.Length() ? String.Format("SIDEGRADE %d/2  %s", (s1P ? 1 : 0) + (s2P ? 1 : 0), sideLabelP)
+			                             : String.Format("SIDEGRADE %d/2", (s1P ? 1 : 0) + (s2P ? 1 : 0)), SHEET_TEXT);
+
+		// Pandemonia-family player level, and Anarchy's Anarchic Sigil --
+		// both PLAYER-side, independent of which family weapon (base,
+		// Anarchy, or Insurrection) is actually in hand, so both are
+		// called unconditionally the same way Doomablo's LevelOf() is.
+		bool hasGameLvl; int gameLvl;
+		[hasGameLvl, gameLvl] = wr_CompatPandemonia.GameLevelOf(w);
+		if (hasGameLvl)
+			sheetRow(String.Format("GAME LEVEL %d", gameLvl), SHEET_TEXT);
+
+		bool hasSigil; int sigilLvl, sigilPts, sigilPtsMax; bool sigilCd;
+		[hasSigil, sigilLvl, sigilPts, sigilPtsMax, sigilCd] = wr_CompatPandemoniaAnarchy.SigilOf(w);
+		if (hasSigil)
+			sheetRow(sigilPtsMax > 0 ? String.Format("SIGIL LVL %d  %d/%d", sigilLvl, sigilPts, sigilPtsMax)
+			                        : String.Format("SIGIL LVL %d  MAX", sigilLvl),
+			         sigilCd ? color(SHEET_LOCK) : color(SHEET_HOT));
 
 		// Guncaster's player-side resource pools -- see wr_compat_guncaster.zs.
 		// No per-weapon tier in this mod at all, so this reads the weapon's
