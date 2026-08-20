@@ -9,15 +9,22 @@ AddMenuKey "Main hand wheel" wr_toggle_main
 DefaultBind ] wr_toggle_off
 DefaultBind [ wr_toggle_main
 
-// GUN READOUT PLACEMENT -- console-only on purpose. This is a calibration
-// tool for whoever is measuring a weapon set, not a normal-play control, so
-// it gets aliases and no default binds. Bind them yourself while placing:
-//   bind <key> wr_place        (enter/exit placement mode)
-//   bind <key> wr_lock         (lock the free hand's touch point)
-//   bind <key> wr_measure      (two-point size measure)
-//   bind <key> wr_save         (print the calibration line)
-//   bind <key> "wr_nudge 0 1"  (nudge one of the eight axes; see wr_gunhud.zs
-//                                for AXIS_F..AXIS_H)
+// GUN READOUT PLACEMENT -- a calibration tool for whoever is measuring a
+// weapon set, not a normal-play control, so it gets NO default binds: none
+// of these can fire by accident during a fight because none of them are on
+// a key until you put them there.
+//
+// But bindable FROM THE MENU, not console-only. This mod is used in VR,
+// where there is no reachable console at all -- an alias with no key section
+// is not "advanced", it is unreachable. The four verbs below are the whole
+// workflow; the sixteen nudge aliases stay console/config-only because they
+// are eight axes times two directions and would bury the key list, and
+// anyone binding all sixteen is editing a config file anyway.
+AddKeySection "RSVR HUD - gun placement" wr_PlaceKeys
+AddMenuKey "Enter/exit placement mode" wr_place
+AddMenuKey "Lock touch point"          wr_lock
+AddMenuKey "Two-point size measure"    wr_measure
+AddMenuKey "Print calibration line"    wr_save
 Alias wr_place   "netevent wr_place"
 Alias wr_lock    "netevent wr_lock"
 Alias wr_measure "netevent wr_measure"

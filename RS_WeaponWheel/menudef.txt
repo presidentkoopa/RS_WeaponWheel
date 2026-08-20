@@ -38,6 +38,15 @@ OptionMenu wr_Options
 	Slider "Wrist roll spins the ring", "wr_roll",         0.0, 1.0, 0.05, 2
 
 	StaticText ""
+	StaticText "Layout", gold
+	// Two shapes for the same set of cards. A ring divides 360 degrees by its
+	// card count, so every extra weapon tightens every gap; a comb grows
+	// outward at a spacing that never tightens -- nineteen cells by its second
+	// ring. Both keep a fixed place per slot, so either stays learnable.
+	Option "Honeycomb instead of ring",   "wr_hex",        "OnOff"
+	Slider "  Rings arrive apart by (tics)", "wr_hex_stagger", 0, 12, 1, 0
+
+	StaticText ""
 	StaticText "Cards", gold
 	Slider "Card width",                "wr_panel_w",      1.0, 12.0, 0.25, 2
 	Slider "Card height",               "wr_panel_h",      1.0, 12.0, 0.25, 2
@@ -56,6 +65,14 @@ OptionMenu wr_Options
 	// cards grew out of the wrist.
 	Slider "Cards grow in over (tics)", "wr_growtics",     0, 20, 1, 0
 	Option "Ammo counts and gauges",    "wr_ammo",         "OnOff"
+	// Below this share of a full load a card pulses. Every weapon set gets
+	// this -- it needs no rarity system to read against.
+	Slider "Low ammo warns below",      "wr_lowammo_frac", 0.0, 0.9, 0.05, 2
+	Slider "  Low ammo pulse",          "wr_lowammo_pulse", 0.0, 1.0, 0.05, 2
+	// A slow drift of brightness across the whole ring while it sits there,
+	// each card on its own offset phase so the ring twinkles rather than
+	// blinking in step. Works on any weapon set, rarity or not.
+	Slider "Idle shimmer",              "wr_shimmer",      0.0, 1.0, 0.05, 2
 	// Off falls back to the sampled plate: cheaper, blurs up close, and cannot
 	// glow -- a halo needs a distance field to read past the shape's edge.
 	Option "Sharp plates (SDF)",        "wr_sdf",          "OnOff"
@@ -96,6 +113,11 @@ OptionMenu wr_Options
 	// real magazine size, read straight off the weapon. Off leaves the rows
 	// the engine itself can answer, which work with no weapon mod at all.
 	Option "  Rolled weapon stats",     "wr_sheet_stats",  "OnOff"
+	// Kills, shots, accuracy, time held, and headshots when RS_Headshots is
+	// loaded -- counted by this mod as you play rather than read off another
+	// mod, so it works on every weapon including plain vanilla ones.
+	Option "  Track kills and accuracy", "wr_stats_track", "OnOff"
+	Submenu "  Weapon mod compatibility...", wr_Compat
 
 	StaticText ""
 	StaticText "The gun's own readout", gold
@@ -121,6 +143,7 @@ OptionMenu wr_Options
 	// runtime reports wrist roll. Flip it if the readout rolls backwards when
 	// you turn the gun over.
 	Option "  Roll follows wrist as",   "wr_gun_rollsign", "wr_RollSign"
+	Submenu "  Placement tool...",      wr_Place
 
 	StaticText ""
 	StaticText "The room", gold
@@ -149,6 +172,12 @@ OptionMenu wr_Options
 	// Tics the laser can spend on another real card before an open fan
 	// actually folds -- 0 is instant, the old behaviour.
 	Slider "Fan close forgiveness",     "wr_subcards_grace", 0, 20, 1, 0
+	// What a crowded slot unfolds INTO. Off is the fan -- three tidy lanes
+	// stacked outward. On scatters the same cards as stars around the one you
+	// opened and draws a line out to each. The scatter is fixed per slot, so
+	// a slot opens to the same shape every time rather than reshuffling.
+	Option "Constellation instead of fan", "wr_constellation", "OnOff"
+	Slider "  Lines draw apart by (tics)", "wr_star_stagger", 0, 12, 1, 0
 	Slider "Unhovered cards fade to",   "wr_dim",          0.05, 1.0, 0.05, 2
 	Option "Mark weapons you hold",     "wr_marker",       "OnOff"
 	Option "Slot number on cards",      "wr_slotnum",      "OnOff"
@@ -161,9 +190,21 @@ OptionMenu wr_Options
 	// volumes lighting the same wall.
 	Option "Hovered card lights room",  "wr_light",        "OnOff"
 	Slider "  Light size",              "wr_light_size",   8.0, 160.0, 4.0, 0
+	// Tics the light survives crossing the gap between two cards. 0 cuts it
+	// the instant you leave a card, which reads as a flicker while browsing.
+	Slider "  Light holds across gaps", "wr_light_grace",  0, 12, 1, 0
+
+	// Quiet points of light behind the cards, further back than they are, so
+	// head movement separates them into their own plane. Same sky every time
+	// rather than a fresh scatter each summon. 0 is off.
+	Slider "Background stars",          "wr_stars",        0, 200, 10, 0
+	Slider "  Star brightness",         "wr_stars_alpha",  0.0, 1.0, 0.05, 2
 
 	StaticText ""
 	StaticText "Taking a weapon", gold
+	// A one-shot ring at the card you took, plus the same flash when a fan
+	// opens. Reads even with sound and rumble both off.
+	Option "Flash on confirm",          "wr_flash",        "OnOff"
 	Slider "Sparks",                    "wr_sparks",       0.0, 80.0, 2.0, 0
 	Slider "Spark speed",               "wr_sparks_speed", 0.2, 4.0, 0.1, 1
 	Option "Spark colour",              "wr_spark_color", "wr_SparkColors"
@@ -214,6 +255,88 @@ OptionMenu wr_Options
 	StaticText ""
 	StaticText "Troubleshooting", gold
 	Option "Print diagnostics on open", "wr_debug",        "OnOff"
+
+	StaticText ""
+}
+
+// THE PLACEMENT TOOL, for measuring where a readout sits on a given weapon.
+//
+// Its own page and its own key section because this is a calibration
+// workflow, not a normal-play control -- but reachable WITHOUT a console,
+// because this mod is used in VR and there is no console there to reach.
+OptionMenu wr_Place
+{
+	Title "RSVR HUD - PLACEMENT TOOL"
+
+	StaticText ""
+	StaticText "Which hand is being measured", gold
+	// The OTHER hand is always the cursor, so measuring an offhand weapon
+	// means flipping this first.
+	Option "Calibrating",               "wr_gun_placehand", "wr_PlaceHand"
+
+	StaticText ""
+	StaticText "Nudge step per press", gold
+	Slider "Distance",                  "wr_gun_step",     0.05, 2.0, 0.05, 2
+	Slider "Angle",                     "wr_gun_astep",    0.5, 15.0, 0.5, 1
+
+	StaticText ""
+	StaticText "Controls", gold
+	Control "Enter/exit placement mode", "wr_place"
+	Control "Lock touch point",          "wr_lock"
+	Control "Two-point size measure",    "wr_measure"
+	Control "Print calibration line",    "wr_save"
+
+	StaticText ""
+}
+
+OptionValue wr_PlaceHand
+{
+	0, "Main hand"
+	1, "Off hand"
+}
+
+// WHAT THE DATA SHEET READS OUT OF OTHER WEAPON MODS.
+//
+// Its own page because these are nine switches that only matter to whoever
+// has that particular mod loaded -- on the main page they would be nine rows
+// of noise for everyone else. Every one is ON by default and costs nothing
+// when the mod it names is absent: the sheet asks whether a field exists on
+// the weapon in your hand, and a mod that is not loaded simply has no field
+// to find, so the row never appears. Turning one off here is for when you
+// have the mod AND would rather not see its rows.
+OptionMenu wr_Compat
+{
+	Title "RSVR HUD - WEAPON MOD DATA"
+
+	StaticText ""
+	StaticText "Mods with a rarity ladder", gold
+	// These three also COLOUR the card and the sheet title by their own
+	// rarity, which is why each has a separate switch for its extra rows:
+	// you may want the colour without the detail.
+	Option "LegenDoom rarity",          "wr_ld_compat",    "OnOff"
+	Option "  Rolled effects row",      "wr_ld_effects",   "OnOff"
+	Option "DoomRL Arsenal tier",       "wr_drla_compat",  "OnOff"
+	Option "  Mod Station upgrades row", "wr_drla_mods",   "OnOff"
+	// Rarity, plus your character level, XP, Inferno level and rolled stats.
+	Option "Doomablo rarity and level", "wr_dbl_compat",   "OnOff"
+
+	StaticText ""
+	StaticText "Mods with no rarity ladder", gold
+	// None of these four colour anything -- they have no tier concept at all,
+	// confirmed by survey rather than assumed. They only add rows.
+	//
+	// One switch for the whole Pandemonia family: base game durability,
+	// magazine and sidegrades, Anarchy's Anarchic Sigil levelling, and
+	// Insurrection's augments, durability and charge bars.
+	Option "Pandemonia family",         "wr_pand_compat",  "OnOff"
+	// Spell cooldown and the five player resource pools.
+	Option "Guncaster resources",       "wr_gc_compat",    "OnOff"
+	// Plasma rifle heat, and Unmaker demon keys.
+	Option "MetaDoom heat and keys",    "wr_meta_compat",  "OnOff"
+	// Damage, accuracy, rate of fire, recoil, clip and rolled level -- read
+	// from the array BorderDoom's own stat lookup writes into, never from
+	// that lookup itself, which has side effects on your ammo capacity.
+	Option "BorderDoom weapon stats",   "wr_bd_compat",    "OnOff"
 
 	StaticText ""
 }
