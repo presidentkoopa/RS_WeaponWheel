@@ -30,12 +30,17 @@
 // undercounted stat is honest; a misattributed one is a lie wearing a
 // number.
 //
-// HEADSHOTS ONLY IF THAT MOD IS ACTUALLY LOADED. E:\Headshots has no
-// counter of its own -- HS_Handler.WorldThingDamaged detects a headshot and
+// HEADSHOTS ONLY IF RS_HEADSHOTS IS ACTUALLY LOADED. That mod keeps no
+// count of its own -- HS_Handler.WorldThingDamaged detects a headshot and
 // calls HS_Marker.Confirm(), which spawns a cosmetic marker actor, plays a
-// sound, and fades out. Nothing persists. So this counts HS_Marker spawns
-// itself, via WorldThingSpawned -- zero duplicated hit-detection geometry,
-// and it naturally only ever fires when that mod is present.
+// positional sound, and fades out. Nothing persists. So this counts
+// HS_Marker spawns itself, via WorldThingSpawned -- zero duplicated
+// hit-detection geometry, and the class simply not existing is what gates
+// the row off when the mod is absent (HeadshotsOf's Object.FindClass check),
+// exactly the same soft-dependency rule every compat file here follows.
+//
+// Its damage bonus needs one specific guard on the damage path -- see
+// WorldThingDamaged below.
 class wr_WeaponStats
 {
 	Weapon wpn;
@@ -272,7 +277,23 @@ class wr_StatEvents : EventHandler
 		if (!s) return;
 
 		s.damageSum += e.Damage;
-		s.damageSamples++;
+
+		// RS_HEADSHOTS' BONUS IS NOT A SECOND HIT, AND MUST NOT COUNT AS ONE.
+		//
+		// That mod cannot raise a headshot's damage in place -- WorldThing
+		// Damaged fires AFTER DamageMobj has already applied the number -- so
+		// it deals a separate immediate follow-up hit for the difference,
+		// tagged 'HS_HeadshotBonus' (hs_detect.zs). That arrives here as its
+		// own damage event, and counting it as its own sample would average
+		// one headshot's total damage across two samples: a 30-damage hit
+		// plus its 15-damage bonus reading as 22 per hit rather than the 45
+		// it actually was -- the bonus would make the weapon look WEAKER.
+		//
+		// So the damage is added (it was really dealt) but the sample is not
+		// (it was not a separate hit). Hits themselves need no such guard:
+		// pendingHitUntilTic is consumed by the first event and cannot be
+		// claimed twice.
+		if (e.DamageType != 'HS_HeadshotBonus') s.damageSamples++;
 
 		if (s.pendingHitUntilTic > 0 && level.maptime <= s.pendingHitUntilTic)
 		{
