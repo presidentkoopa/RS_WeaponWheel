@@ -82,5 +82,63 @@ across the gap between cards doesn't read as the light blinking off and on.
 
 ---
 
+## Every stat, for every weapon
+
+The seven RS Weapon-only rows above used to be a special case — one mod got
+a full readout, everything else got a handful of generic lines. That's
+gone. DPS, damage, rate of fire, accuracy, magazine size, pellet count,
+crit chance and velocity now resolve for **any** weapon, from any mod or
+none, by asking the same question three ways: does a mod declare this as a
+real field, has the wheel *observed* it by watching the weapon fire, or is
+it cursed and hidden. Whichever answers wins; nothing is ever invented.
+
+- **Damage prints as a range**, not an average — `12-18`, not `15`. Most
+  Doom weapons roll their damage, so an average is a number the gun can
+  never actually deal.
+- **Magazine size is the highest load ever actually seen**, not the ammo
+  type's generic ceiling — mods routinely give that headroom, so the
+  obvious source prints a full magazine as a fraction of a number it never
+  reaches.
+- **Recoil is gone.** It modeled a crosshair kick — the game aiming for
+  you — and in VR your hand is the aim. Not reduced, removed.
+
+A hidden tracker backs all of it: kills, shots fired, hit rate, headshots
+(once **RS_Headshots** is loaded), and time actually spent holding each
+weapon — counted per gun, survives a save, and works on a stock pistol as
+readily as a rolled legendary. Twelve mods are now read directly, the
+newest being **Combined Arms** (Artificer, BlastMaster, Tech Monk, Past
+Linked) — no ZScript in that one at all, so its four classes' heat, charge
+and durability systems are read straight out of inventory item counts
+instead of fields.
+
+## Point at a weapon and ask "is it better"
+
+The sheet no longer needs the ring open. Point at any weapon lying in the
+world and, after a moment's rest, the same card appears at that hand — and
+if it's holding something else, the card becomes a full side-by-side table
+instead: every stat, every mod-specific row either weapon has, ammo
+compatibility, tier, and which hand it costs you, with the better side of
+each row lit and the worse one dimmed. Two weapons from the same mod land
+in one row; two from different mods each get their own, since an
+augment count and a Mod Station slot aren't the same axis and forcing them
+into one comparison would invent a number that isn't real. A cursed stat
+still shows as `???` with neither side declared the winner — comparing
+across a curse would leak exactly what it's hiding.
+
+## Two more shapes for the ring itself
+
+Both off by default, neither replacing the ring or the fan:
+
+- **Honeycomb** lays the same cards out as a gapless hex spiral instead of
+  a circle. A ring divides 360° by its card count, so every extra weapon
+  tightens every gap; a comb grows outward at a spacing that never does.
+- **Constellation** changes what a crowded slot unfolds into — instead of
+  a tidy three-lane fan, its weapons scatter as stars around the one you
+  opened, with a line drawn from hub to each as it arrives. A background
+  starfield can run independently of either, just quiet drifting points of
+  light behind the ring.
+
+---
+
 Setup, keybinds, and every option explained are in
 [SETUP.md](SETUP.md); the engineering rationale is in [DESIGN.md](DESIGN.md).
