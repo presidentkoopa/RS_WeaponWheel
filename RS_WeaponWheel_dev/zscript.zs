@@ -422,3 +422,233 @@ class DEV_MeatGrinder : WR_DevPlayerBase
 		WR_DevKit.GiveAmmo(pmo, "RocketAmmo");
 	}
 }
+
+// =====================================================================
+// WR_TestDummy -- a weapon that never leaves the floor.
+// ---------------------------------------------------------------------
+// Everything above this point spawns a PLAYER with real weapons; this
+// spawns a WEAPON with fake data, for testing inspect mode and the
+// comparison card without needing all eleven supported mods actually
+// installed. `summon WR_TestDummy` a few times and point at them --
+// each roll is independent, so different copies show different tiers,
+// different curses, different mod profiles.
+//
+// NEVER PICKED UP. It has no TryPickup override and grants nothing on
+// touch by default -- a Shotgun subclass would normally be pick-up-able,
+// so bInvBar/bNoAutomap are left alone but pickup itself is blocked
+// below. If it could be picked up, inspect mode's own
+// `found.Owner != null` guard would make it invisible to itself the
+// moment you touched it, which defeats the entire point of a dummy
+// meant to sit there and be pointed at.
+//
+// FIELD REFLECTION DOES NOT CHECK WHICH MOD DECLARED A FIELD, ONLY
+// WHETHER ONE EXISTS BY THAT NAME. That is what makes this possible at
+// all: this class declares the same field names DamagePerShot/Tier/
+// generatedRarity/aug_str/etc. that RS Weapon, Doomablo, Pandemonia and
+// Insurrection each declare on THEIR OWN weapon classes, and every
+// wr_Compat*/wr_Stats reader that asks "does the thing in your hand have
+// a field called X" gets a real answer back, with no idea any of this
+// came from a test dummy instead of the real mod.
+//
+// ONE HONEST ARTIFACT WORTH KNOWING: base Pandemonia and Insurrection
+// both independently chose the field names dwep/durability/dmax for
+// their own durability systems -- confirmed against both mods' actual
+// source, not a coincidence introduced here. This dummy can only set
+// those three fields once, so whichever profile below turns durability
+// on, BOTH wr_CompatPandemonia.DurabilityOf and
+// wr_CompatPandemoniaInsurrection.DurabilityOf will find it and the
+// comparison card will show two identical DURA rows for one weapon. In
+// the real mods this never happens, because a weapon is only ever one
+// class or the other; it is a property of testing both readers against
+// one dummy, not a bug in the readers themselves.
+class WR_TestDummy : Shotgun
+{
+	Default
+	{
+		Weapon.AmmoType "Shell";
+		Weapon.AmmoGive 0;
+		Tag "$TAG_SHOTGUN";
+		+NOGRAVITY
+	}
+
+	// Blocks the pickup a Shotgun subclass would otherwise offer. See the
+	// header on why this cannot be allowed to succeed -- an owned dummy
+	// is invisible to inspect mode's own floor-weapon check.
+	override bool TryPickup(in out Actor toucher)
+	{
+		return false;
+	}
+
+	private int RandRange(int lo, int hi)
+	{
+		return lo + Random(0, hi - lo);
+	}
+
+	private double RandF(double lo, double hi)
+	{
+		return lo + FRandom(0.0, 1.0) * (hi - lo);
+	}
+
+	override void PostBeginPlay()
+	{
+		Super.PostBeginPlay();
+
+		// THE UNIVERSAL FIELDS -- wr_stats.zs's own resolver, on every
+		// roll, so every summoned copy has a coherent baseline card (tier
+		// colour, condition bar, DPS/accuracy/crit/velocity/capacity)
+		// whether or not a profile below adds anything on top of it.
+		Tier = RandRange(0, 7);
+
+		DamagePerShot = RandRange(4, 22);
+		RateOfFire    = RandRange(1, 9);
+		Accuracy      = RandF(35.0, 95.0);
+		CritChance    = RandF(0.02, 0.35);
+		PelletCount   = (Random(0, 3) == 0) ? 1 : RandRange(4, 9);
+		Capacity      = RandRange(4, 40);
+		Condition     = RandF(5.0, 100.0);
+		Velocity      = RandF(400.0, 3200.0);
+
+		// Curses, rolled independently and each with real odds of firing
+		// -- the masked path (???, no bar leak) is exactly as worth
+		// seeing as the unmasked one, and it is the path most likely to
+		// go untested if every dummy just showed every number.
+		LockedDamage     = Random(0, 3) == 0;
+		LockedAccuracy   = Random(0, 3) == 0;
+		LockedCritChance = Random(0, 3) == 0;
+		LockedCapacity   = Random(0, 3) == 0;
+		LockedVelocity   = Random(0, 3) == 0;
+
+		// ONE MOD PROFILE, chosen per spawn. Layered on top of the
+		// universal fields above rather than replacing them -- every
+		// dummy has a tier and a condition; only some also have a
+		// rarity, a durability system, an augment list, or heat.
+		int profile = Random(0, 4);
+		if (profile == 0) RollDoomablo();
+		else if (profile == 1) RollPandemonia();
+		else if (profile == 2) RollInsurrection();
+		else if (profile == 3) RollMetaDoom();
+		// profile 4: universal fields only, no supplementary rows --
+		// worth keeping as an option so not every dummy is dressed up.
+	}
+
+	// Doomablo -- generatedRarity is the field this fork's field
+	// reflection reads directly (wr_compat_doomablo.zs), range-checked
+	// there against 0..6, so this rolls inside that range on purpose
+	// rather than letting an out-of-range value quietly read as
+	// unreadable.
+	private void RollDoomablo()
+	{
+		generatedRarity = RandRange(0, 6);
+	}
+
+	// Base Pandemonia -- durability, an internal magazine distinct from
+	// the ammo pool, and the two-slot sidegrade system. sidestring1/2
+	// are declared `name`, not `string`, in the real mod
+	// (wr_compat_pandemonia.zs's own header explains why that distinction
+	// is enforced by this fork's reflection) -- getting the type wrong
+	// here would silently make SidegradesOf() find nothing.
+	private void RollPandemonia()
+	{
+		dwep       = true;
+		dmax       = RandRange(20, 100);
+		durability = RandRange(0, dmax);
+		dbroken    = durability <= 0;
+
+		magSize  = RandRange(10, 60);
+		magCount = RandRange(0, magSize);
+
+		sidegrade  = true;
+		sidegrade1 = Random(0, 1) == 1;
+		sidegrade2 = Random(0, 1) == 1;
+		sidestring1 = 'Overcharged Coil';
+		sidestring2 = 'Extended Barrel';
+	}
+
+	// Insurrection -- a handful of the eleven augment types stacked to a
+	// random depth, plus its own separate durability system (same field
+	// names as Pandemonia's -- see the class header), a colour tag, and
+	// the combo bar a few of that mod's weapons use.
+	private void RollInsurrection()
+	{
+		aug_str = RandRange(0, 3);
+		aug_cap = RandRange(0, 2);
+		aug_chs = RandRange(0, 1);
+		curaugs = aug_str + aug_cap + aug_chs;
+		maxaugs = RandRange(curaugs, curaugs + 3);
+
+		dwep       = true;
+		dmax       = RandRange(20, 100);
+		durability = RandRange(0, dmax);
+		dbroken    = durability <= 0;
+
+		coltag = "[Prototype]";
+
+		wepbarmax = RandRange(20, 60);
+		wepbar    = RandRange(0, wepbarmax);
+
+		if (Random(0, 3) == 0)
+		{
+			gotsupped  = true;
+			sup_string = "Superior: +15% blast radius";
+		}
+	}
+
+	// MetaDoom -- plasma rifle heat buildup. Not gated to a specific
+	// weapon class the way the real field is (heatlevel/shotsfired only
+	// ever exist on MetaPlasmaRifle in the actual mod); a test dummy has
+	// no reason to respect that restriction, since the point is to see
+	// the row draw.
+	private void RollMetaDoom()
+	{
+		heatlevel  = RandRange(0, 5);
+		shotsfired = RandRange(0, 40);
+	}
+
+	// UNIVERSAL (RS Weapon field names, read by wr_stats.zs)
+	int Tier;
+	int DamagePerShot;
+	int RateOfFire;
+	double Accuracy;
+	double CritChance;
+	int PelletCount;
+	int Capacity;
+	double Condition;
+	double Velocity;
+	bool LockedDamage;
+	bool LockedAccuracy;
+	bool LockedCritChance;
+	bool LockedCapacity;
+	bool LockedVelocity;
+
+	// Doomablo
+	int generatedRarity;
+
+	// Base Pandemonia + Insurrection (shared names -- see class header)
+	bool dwep;
+	int durability;
+	int dmax;
+	bool dbroken;
+
+	// Base Pandemonia only
+	int magSize;
+	int magCount;
+	bool sidegrade;
+	bool sidegrade1;
+	bool sidegrade2;
+	name sidestring1;
+	name sidestring2;
+
+	// Insurrection only
+	int aug_str, aug_prs, aug_hst, aug_cap, aug_bls, aug_chs, aug_flm, aug_scv, aug_sup, aug_arc, aug_mag;
+	int curaugs;
+	int maxaugs;
+	string coltag;
+	int wepbar;
+	int wepbarmax;
+	bool gotsupped;
+	string sup_string;
+
+	// MetaDoom
+	int heatlevel;
+	int shotsfired;
+}
