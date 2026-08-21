@@ -479,6 +479,60 @@ class WR_TestDummy : Shotgun
 		return false;
 	}
 
+	// THE RAINBOW. Purely cosmetic and purely so a dummy reads as
+	// obviously fake at a glance -- nobody should ever mistake this for a
+	// real shotgun pickup mid-test.
+	//
+	// A_SetBlend, not a TRNSLATE palette swap. A translation remaps
+	// specific palette INDICES, so getting a true rainbow out of one
+	// means knowing exactly which indices the Shotgun sprite's shading
+	// ramp occupies -- correct, but a second file and a lookup this dummy
+	// does not need. A_SetBlend washes a solid colour over whatever is
+	// already drawn, needs no new lump, and works on any sprite regardless
+	// of its palette.
+	//
+	// Re-armed every tic with a short duration rather than fired once with
+	// a long one: A_SetBlend fades linearly to nothing over its own tics,
+	// so a single long call would visibly dim between hue steps. Setting a
+	// fresh full-strength blend each tic keeps it solid; the duration
+	// (RAINBOW_TICS) only has to outlast one tic so two consecutive calls
+	// overlap instead of gapping.
+	const RAINBOW_TICS     = 3;
+	const RAINBOW_STRENGTH = 0.55;
+	const RAINBOW_SPEED    = 3;    // degrees of hue per tic
+
+	int mHuePhase;   // 0-359, rolled once per spawn
+
+	override void Tick()
+	{
+		Super.Tick();
+
+		int hue = (mHuePhase + level.maptime * RAINBOW_SPEED) % 360;
+		A_SetBlend(HueColor(hue), RAINBOW_STRENGTH, RAINBOW_TICS);
+	}
+
+	// Classic six-segment hue wheel, full saturation and value, hue in
+	// degrees 0-359. Piecewise-linear rather than trig -- cheap, and a
+	// colour cycle has no reason to be smoother than straight lines
+	// between six anchor points already are.
+	private static color HueColor(int hue)
+	{
+		int seg = hue / 60;
+		int f   = hue % 60;
+		int up   = (f * 255) / 60;
+		int down = 255 - up;
+
+		switch (seg)
+		{
+			case 0: return color(255, up,   0);
+			case 1: return color(down, 255, 0);
+			case 2: return color(0,   255, up);
+			case 3: return color(0,   down, 255);
+			case 4: return color(up,   0,   255);
+			default: return color(255, 0,   down);
+		}
+	}
+
 	private int RandRange(int lo, int hi)
 	{
 		return lo + Random(0, hi - lo);
@@ -492,6 +546,12 @@ class WR_TestDummy : Shotgun
 	override void PostBeginPlay()
 	{
 		Super.PostBeginPlay();
+
+		// Independent phase per dummy, so a room full of them cycles as a
+		// field of separately-drifting colours rather than one shared
+		// flash -- same reasoning the ring's own idle shimmer phase-offsets
+		// each card for.
+		mHuePhase = Random(0, 359);
 
 		// THE UNIVERSAL FIELDS -- wr_stats.zs's own resolver, on every
 		// roll, so every summoned copy has a coherent baseline card (tier
