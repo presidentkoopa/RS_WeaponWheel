@@ -1414,6 +1414,67 @@ class wr_Rig : EventHandler
 		[diPerk, diPerks] = wr_CompatDoomInfinite.PerksOf(w);
 		if (diPerk) sheetRow(String.Format("PERKS %d", diPerks), SHEET_TEXT);
 
+		// THE PERKS THEMSELVES, newest first. Deep into a run this list is
+		// thirty entries long and the card has room for a few, so the ones
+		// worth the space are the ones just taken -- the rest become a
+		// "+N MORE" tail rather than silently vanishing.
+		bool diPL; string diPerkList;
+		[diPL, diPerkList] = wr_CompatDoomInfinite.PerkListOf(w, 3);
+		if (diPL) sheetRow(diPerkList, SHEET_DIM);
+
+		// The active item, as its cooldown rather than its name -- the name
+		// table is a second `static const` of twenty-five strings and the
+		// row reads fine without it, since what decides whether you think
+		// about an active right now is whether it is ready.
+		bool diAct; string diActName; int diActCount, diActCd, diActCdMax;
+		[diAct, diActName, diActCount, diActCd, diActCdMax] = wr_CompatDoomInfinite.ActiveOf(w);
+		if (diAct)
+			sheetRow(diActCd > 0 ? String.Format("ACTIVE %ds  x%d", diActCd / 35 + 1, diActCount)
+			                     : String.Format("ACTIVE READY  x%d", diActCount),
+			         diActCd > 0 ? color(SHEET_LOCK) : color(SHEET_HOT));
+
+		// HEALTH AGAINST THE RUN'S OWN CEILING, not vanilla maxhealth. The
+		// mod recomputes an effective max every tick and lets health EXCEED
+		// it -- that overshoot is its overheal model, so a naive percentage
+		// would read over 100 and clip.
+		bool diHp; int diHpNow, diHpMax, diHpRegen;
+		[diHp, diHpNow, diHpMax, diHpRegen] = wr_CompatDoomInfinite.HealthOf(w);
+		if (diHp)
+		{
+			string over = (diHpNow > diHpMax) ? "  OVERHEAL" : "";
+			string reg  = (diHpRegen != 0) ? String.Format("  %+d/s", diHpRegen) : "";
+			sheetRow(String.Format("HP %d/%d%s%s", diHpNow, diHpMax, over, reg),
+			         (diHpNow * 4 < diHpMax) ? color(COLOR_AMMO_DRY) : color(SHEET_TEXT));
+		}
+
+		bool diAp; int diApNow, diApMax, diApRegen;
+		[diAp, diApNow, diApMax, diApRegen] = wr_CompatDoomInfinite.ArmorOf(w);
+		if (diAp && (diApNow > 0 || diApRegen != 0))
+			sheetRow(String.Format("ARMOR %d/%d%s", diApNow, diApMax,
+			         diApRegen != 0 ? String.Format("  %+d/s", diApRegen) : ""), SHEET_MEAS);
+
+		bool diBuf; string diBuffs;
+		[diBuf, diBuffs] = wr_CompatDoomInfinite.BuffsOf(w);
+		if (diBuf) sheetRow(diBuffs, SHEET_HOT);
+
+		// Debuffs print either their remaining seconds (armed) or their
+		// build-up meter (still filling) -- see the compat file. The meter
+		// is a "you are about to be poisoned" warning the mod never shows.
+		bool diDeb; string diDebuffs;
+		[diDeb, diDebuffs] = wr_CompatDoomInfinite.DebuffsOf(w);
+		if (diDeb) sheetRow(diDebuffs, COLOR_AMMO_DRY);
+
+		// Arena wave progress. Both halves read zero in Classic, where there
+		// is no wave, which gates this off without needing to know the mode.
+		bool diWav; int diWavKilled, diWavMax;
+		[diWav, diWavKilled, diWavMax] = wr_CompatDoomInfinite.WaveOf(w);
+		if (diWav) sheetRow(String.Format("WAVE %d/%d", diWavKilled, diWavMax), SHEET_TEXT);
+
+		bool diTal; int diKills, diMapKills, diShots;
+		[diTal, diKills, diMapKills, diShots] = wr_CompatDoomInfinite.TallyOf(w);
+		if (diTal)
+			sheetRow(String.Format("RUN %d KILLS  MAP %d", diKills, diMapKills), SHEET_DIM);
+
 		// Combined Arms -- see wr_compat_combinedarms.zs. Four classes with
 		// four different resource systems, so which of these rows answer at
 		// all depends on who the player is, not on which weapon is under the
@@ -7741,10 +7802,21 @@ class wr_Rig : EventHandler
 	// number as before, sh just got bigger to make room for more of them)
 	// -- this is a taller, narrower plate fitting more of the same-size
 	// rows, not the same plate with smaller text crammed in.
-	const SHEET_H_CARDS    = 3.9;
+	// Grown again, 3.9 -> 8.6, for the same reason and by the same technique
+	// as the 3.2 -> 3.9 step before it: a fully-loaded DOOM Infinite weapon
+	// can emit close to thirty rows (its own dozen supplementary axes, plus
+	// the player-side run/health/buff block, plus the universal stat rows on
+	// top), and rows past the pool are dropped silently by sheetRow. ROW_FRAC
+	// shrinks in exact proportion, so h * ROW_FRAC -- an existing row's real
+	// size on screen -- is unchanged. A taller plate holding more of the same
+	// size rows, never the same plate with smaller text.
+	//
+	// It is a big panel now. wr_sheet_scale shrinks the whole thing for
+	// anyone who would rather lose rows than height.
+	const SHEET_H_CARDS    = 8.6;
 	const SHEET_GAP_CARDS  = 0.55;   // daylight between ring and sheet
 	const SHEET_TITLE_FRAC = 0.085;  // title height, of sheet height
-	const SHEET_ROW_FRAC   = 0.045;  // one row's height
+	const SHEET_ROW_FRAC   = 0.0204; // one row's height
 	const SHEET_ROWS_TOP   = 0.21;   // where the first row starts, from the top
 	const SHEET_ROW_PITCH  = 1.30;   // row spacing as a multiple of row height
 
@@ -7796,7 +7868,7 @@ class wr_Rig : EventHandler
 	// rather than sitting exactly on the edge). Twelve rows plus one bar is
 	// that budget. A row past it would not error -- it would silently draw
 	// into the room, same as before this grew.
-	const SHEET_ROW_POOL   = 12;
+	const SHEET_ROW_POOL   = 28;
 
 	const SHEET_BG     = 0x0E1016;
 	const SHEET_BG2    = 0x1B2030;

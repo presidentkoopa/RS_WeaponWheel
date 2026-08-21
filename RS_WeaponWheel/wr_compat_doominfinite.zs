@@ -449,6 +449,397 @@ class wr_CompatDoomInfinite
 		return true, left;
 	}
 
+	// THE 135 PASSIVE PERK NAMES, transcribed from DOOM Infinite's own
+	// _powerupPassiveNames[] table (ZSCRIPT/SYSTEM/zMixinPowerup.zsc:839).
+	//
+	// EMBEDDED RATHER THAN READ, because that table is `static const` --
+	// a CLASS CONSTANT, not an instance field, so field reflection cannot
+	// reach it at all. The IDs are a stable enum the mod indexes its own
+	// arrays by, so a name that drifts would drift by one slot rather
+	// than becoming garbage, and a future ID past the end falls through
+	// to an honest empty string instead of a wrong name.
+	static string PerkName(int id)
+	{
+		switch (id)
+		{
+			case 0: return "BULLET HELL";
+			case 1: return "SHELLSHOCK";
+			case 2: return "EXPLOSIVES GALORE";
+			case 3: return "PERFECT CELL";
+			case 4: return "ARCHVILE LEG";
+			case 5: return "AUTODOC";
+			case 6: return "KNIGHT'S FIST";
+			case 7: return "KNIGHT'S HOOF";
+			case 8: return "LITTLE HORN";
+			case 9: return "SCRATCHY";
+			case 10: return "HELL RAGE";
+			case 11: return "PINK FOOT";
+			case 12: return "CYBER HORN";
+			case 13: return "CACO HORNS";
+			case 14: return "CHAINGUNNERS BELT";
+			case 15: return "ARCHVILE HAND";
+			case 16: return "ARCHVILE RIBCAGE";
+			case 17: return "BARON'S FIST";
+			case 18: return "BLOODLUST";
+			case 19: return "BARON'S HOOF";
+			case 20: return "COOLING SYSTEM";
+			case 21: return "CACO'S EYE";
+			case 22: return "BLEEDING HEART";
+			case 23: return "KEENHEAD";
+			case 24: return "CURSED SKULL";
+			case 25: return "EXPLOSIVE GUTS";
+			case 26: return "QUANTUM FLUX";
+			case 27: return "DAISY'S FOOT";
+			case 28: return "REFLECTIVE PLATING";
+			case 29: return "CYBERDEMON PLATING";
+			case 30: return "MINI CACO";
+			case 31: return "GORY CHUNK";
+			case 32: return "WRATH OF THE WICKED";
+			case 33: return "HELLSPEED";
+			case 34: return "TWISTED ABOMINATION";
+			case 35: return "SUPPLY DROP";
+			case 36: return "ALTER EGO";
+			case 37: return "SKULLPILE";
+			case 38: return "PHOBOS PEBBLE";
+			case 39: return "DEIMOS ROCK";
+			case 40: return "HELLSTONE";
+			case 41: return "EMERGENCY POUCH";
+			case 42: return "GRAY MATTER";
+			case 43: return "GOLDEN BULLET";
+			case 44: return "SURVIVAL ARMOR";
+			case 45: return "TESLA COIL";
+			case 46: return "HOLLOW POINT";
+			case 47: return "CRYO GEM";
+			case 48: return "BLACK FEATHER";
+			case 49: return "BARREL FROM HELL";
+			case 50: return "MICRO MISSILES";
+			case 51: return "DEATH TOKEN";
+			case 52: return "FLESH ARMOR";
+			case 53: return "TACTICAL GLOVES";
+			case 54: return "AMMO DOUBLER";
+			case 55: return "ANGOR ANIMI";
+			case 56: return "PLASMITON";
+			case 57: return "SOLAR ANOMALY";
+			case 58: return "ETERNAL HALO";
+			case 59: return "PINKY SOAP";
+			case 60: return "DOUBLE BARREL";
+			case 61: return "VOID BULLET";
+			case 62: return "SERPENTINE RING";
+			case 63: return "RING OF ENTROPY";
+			case 64: return "BRIMSTONE RING";
+			case 65: return "GUN BOT";
+			case 66: return "PLASMA BOT";
+			case 67: return "RAILGUN BOT";
+			case 68: return "RETALIATION ARMOR";
+			case 69: return "CURSED BRAND";
+			case 70: return "TELEKINESIS";
+			case 71: return "BLACK ARMOR";
+			case 72: return "MISSHAPEN EGG";
+			case 73: return "HAYWIRE CHRONOPLAST";
+			case 74: return "SUBATOMIC QUIRK";
+			case 75: return "BLEEDING ARMOR";
+			case 76: return "BULLETPROOF VEST";
+			case 77: return "ECLIPSED PENDANT";
+			case 78: return "SOULLESS CARNAGE";
+			case 79: return "CROWN OF THORNS";
+			case 80: return "CONJOINED CRYSTAL";
+			case 81: return "HEALING AID";
+			case 82: return "GOLDEN ARMOR";
+			case 83: return "VICIOUS TRANSMIT";
+			case 84: return "ONYX RING";
+			case 85: return "PROPAGATOR";
+			case 86: return "POWR RITE";
+			case 87: return "THREE STARS";
+			case 88: return "STORMFEATHER";
+			case 89: return "RIBBON";
+			case 90: return "LASER VISOR";
+			case 91: return "BERYLLIUM CORE";
+			case 92: return "CHARGE CAPACITOR";
+			case 93: return "CYBERDEMON HOOF";
+			case 94: return "ARCHVILE HEAD";
+			case 95: return "MOSS ARMOR";
+			case 96: return "SACRIFICIAL DAGGER";
+			case 97: return "CURSE-WARDING TALISMAN";
+			case 98: return "DIVINE WRATH";
+			case 99: return "PRIMA MATER";
+			case 100: return "TITAN'S PIN";
+			case 101: return "SPLITTER PRISM";
+			case 102: return "LAUREL LEAF";
+			case 103: return "SYMBOL OF MALICE";
+			case 104: return "STRONTIUM 90";
+			case 105: return "ACCELERANT";
+			case 106: return "EVIL WITHIN";
+			case 107: return "BONE ARMOR";
+			case 108: return "BLESSED RING";
+			case 109: return "LUCKY WRENCH";
+			case 110: return "MOON ROCK";
+			case 111: return "STEALTHFIELD PROTOTYPE";
+			case 112: return "BRAWLING GLOVES";
+			case 113: return "SOULDRAIN CRYSTAL";
+			case 114: return "DARK MIASMA";
+			case 115: return "LEADMASTER";
+			case 116: return "SOUL OF SPHERES";
+			case 117: return "LIGHT WISPS";
+			case 118: return "FORTUNE DEVICE";
+			case 119: return "GENE THERAPY";
+			case 120: return "PURIFICATION STONE";
+			case 121: return "MOLYBDENUM";
+			case 122: return "SMALL BANDAGE";
+			case 123: return "CACODEMON CORE";
+			case 124: return "AMBROSIA";
+			case 125: return "DEPHASER";
+			case 126: return "HEMOCOAGULATOR";
+			case 127: return "HEART OF DARKNESS";
+			case 128: return "LIFELINK CATHODE";
+			case 129: return "CURSED RING";
+			case 130: return "LUCKY SMOKES";
+			case 131: return "SHOTGUNBOT";
+			case 132: return "GRAVITROPISM";
+			case 133: return "BERSERK BULLETS";
+			case 134: return "IRON ARMOR";
+		}
+		return "";
+	}
+
+	// THE PERKS ACTUALLY HELD, by name, newest first.
+	//
+	// powerupsPassiveOrdered[] is the acquisition-order list -- perk IDs in
+	// the order they were picked up, -1 for an empty slot -- and it is a
+	// FIXED int[135], which is exactly the shape GetFieldIntArray resolves.
+	// (powerupsPassive[] is the parallel by-ID stack count; a perk can be
+	// taken up to nine times.)
+	//
+	// NEWEST FIRST because the list is far longer than any row: deep into a
+	// run this is thirty entries and the card has space for a handful, so
+	// the ones worth showing are the ones just taken.
+	//
+	// FOUND, TEXT.
+	static bool, string PerkListOf(Weapon w, int maxShown)
+	{
+		if (!w || !w.Owner || cv("wr_di_compat", 1.0) <= 0.0) return false, "";
+
+		// Find the end of the ordered list first. Scanning forward and
+		// stopping at the first -1 is what makes this cheap -- the array is
+		// 135 long and a run rarely fills a fifth of it.
+		int used = 0;
+		for (int i = 0; i < 135; ++i)
+		{
+			int id;
+			if (!level.GetFieldIntArray(w.Owner, "powerupsPassiveOrdered", i, id)) break;
+			if (id < 0) break;
+			used = i + 1;
+		}
+		if (used <= 0) return false, "";
+
+		string s = "";
+		int shown = 0;
+		for (int i = used - 1; i >= 0 && shown < maxShown; --i)
+		{
+			int id;
+			if (!level.GetFieldIntArray(w.Owner, "powerupsPassiveOrdered", i, id)) break;
+			if (id < 0) continue;
+
+			string nm = PerkName(id);
+			if (nm.Length() == 0) continue;
+
+			// The stack count, where a perk has been taken more than once --
+			// "AUTODOC x3" is a materially different thing from one AUTODOC,
+			// and the by-ID array is what knows.
+			int stack;
+			if (level.GetFieldIntArray(w.Owner, "powerupsPassive", id, stack) && stack > 1)
+				nm = nm .. String.Format(" x%d", stack);
+
+			s = s.Length() ? (s .. ", " .. nm) : nm;
+			++shown;
+		}
+
+		if (s.Length() == 0) return false, "";
+		if (used > shown) s = s .. String.Format("  +%d MORE", used - shown);
+		return true, s;
+	}
+
+	// THE ACTIVE ITEM AND ITS COOLDOWN. One slot, unlike the passives, and
+	// the cooldown is the part that decides whether it is worth thinking
+	// about right now.
+	//
+	// FOUND, NAME, CHARGES, COOLDOWN, MAX COOLDOWN.
+	static bool, string, int, int, int ActiveOf(Weapon w)
+	{
+		if (!w || !w.Owner || cv("wr_di_compat", 1.0) <= 0.0) return false, "", 0, 0, 0;
+
+		int id;
+		if (!level.GetFieldInt(w.Owner, "pwrActiveID", id) || id <= 0) return false, "", 0, 0, 0;
+
+		int count, cd, cdMax;
+		level.GetFieldInt(w.Owner, "pwrActiveCount", count);
+		level.GetFieldInt(w.Owner, "pwrActiveCooldown", cd);
+		level.GetFieldInt(w.Owner, "pwrMaxCooldown", cdMax);
+
+		// The ACTIVE name table is a separate `static const` from the passive
+		// one and is not embedded here -- twenty-five more strings to carry a
+		// row that already reads fine as "ACTIVE READY" / "ACTIVE 12s". The
+		// charge count and the cooldown are the decision-relevant halves.
+		return true, "", count, cd, cdMax;
+	}
+
+	//==========================================================================
+	// HEALTH AND ARMOUR, against the run's own moving ceilings.
+	//
+	// NOT vanilla health/maxhealth. DOOM Infinite recomputes an effective
+	// max every tick from perks and run events (user_statMaxHP, clamped
+	// 25..999), and vanilla `health` is allowed to EXCEED it -- that
+	// overshoot IS the mod's overheal model, there is no separate shield
+	// field. So a naive health/maxhealth bar would read over 100% and clip.
+	//
+	// FOUND, HEALTH, MAX HEALTH, REGEN.
+	static bool, int, int, int HealthOf(Weapon w)
+	{
+		if (!w || !w.Owner || cv("wr_di_compat", 1.0) <= 0.0) return false, 0, 0, 0;
+
+		int mx;
+		if (!level.GetFieldInt(w.Owner, "user_statMaxHP", mx) || mx <= 0) return false, 0, 0, 0;
+
+		int regen;
+		level.GetFieldInt(w.Owner, "user_statRegenHP", regen);
+		return true, w.Owner.health, mx, regen;
+	}
+
+	// FOUND, ARMOUR, MAX ARMOUR, REGEN.
+	//
+	// The AMOUNT is not a player field at all -- armType is dead in this
+	// build (zero writers in ZScript, absent from every ACS module), so the
+	// live value comes from the BasicArmor item the same owned-item walk
+	// every DECORATE mod here needs. Only the CEILING is a player field.
+	static bool, int, int, int ArmorOf(Weapon w)
+	{
+		if (!w || !w.Owner || cv("wr_di_compat", 1.0) <= 0.0) return false, 0, 0, 0;
+
+		int mx;
+		if (!level.GetFieldInt(w.Owner, "user_statMaxAP", mx) || mx <= 0) return false, 0, 0, 0;
+
+		int have = 0;
+		for (Inventory it = w.Owner.Inv; it; it = it.Inv)
+		{
+			if (it is "BasicArmor") { have = it.Amount; break; }
+		}
+
+		int regen;
+		level.GetFieldInt(w.Owner, "user_statRegenAP", regen);
+		return true, have, mx, regen;
+	}
+
+	//==========================================================================
+	// STATUS EFFECTS.
+	//
+	// READ THE user_timer* INTS, NEVER Powerup.EffectTics. The mod re-grants
+	// its PowerupGiver dummies once a second with a Duration of 35-36 tics,
+	// so EffectTics always reads about one second no matter how long is
+	// actually left -- it would say "1s" on a buff with a minute to run.
+	// The int timers are the real remaining seconds.
+	//
+	// FOUND, TEXT.
+	static bool, string BuffsOf(Weapon w)
+	{
+		if (!w || !w.Owner || cv("wr_di_compat", 1.0) <= 0.0) return false, "";
+
+		string s = "";
+		s = appendTimer(w.Owner, s, "user_timerInvulnerability", "INVULN");
+		s = appendTimer(w.Owner, s, "user_timerQuad",            "QUAD");
+		s = appendTimer(w.Owner, s, "user_timerHaste",           "HASTE");
+		s = appendTimer(w.Owner, s, "user_timerInvisibility",    "INVIS");
+		s = appendTimer(w.Owner, s, "user_timerReflective",      "REFLECT");
+		s = appendTimer(w.Owner, s, "user_timerFastShoot",       "FASTFIRE");
+		s = appendTimer(w.Owner, s, "timerFrenzy",               "FRENZY");
+		s = appendTimer(w.Owner, s, "timerFlight",               "FLIGHT");
+		s = appendTimer(w.Owner, s, "user_timerRadSuit",         "RADSUIT");
+		return s.Length() > 0, s;
+	}
+
+	// DEBUFFS, and the reason this is a separate reader rather than more of
+	// the above: each one is a PAIR. A build-up meter (0-100) fills as you
+	// take that kind of damage, and only on crossing the threshold does the
+	// real timer arm. The meter is a "you are ABOUT to be poisoned" gauge
+	// the mod never shows as a number anywhere -- so an armed debuff prints
+	// its seconds, and an unarmed one that is filling prints the meter.
+	//
+	// FOUND, TEXT.
+	static bool, string DebuffsOf(Weapon w)
+	{
+		if (!w || !w.Owner || cv("wr_di_compat", 1.0) <= 0.0) return false, "";
+
+		string s = "";
+		s = appendDebuff(w.Owner, s, "user_dotPoison", "user_dotPoisonTimer", "POISON");
+		s = appendDebuff(w.Owner, s, "user_dotBleed",  "user_dotBleedTimer",  "BLEED");
+		s = appendDebuff(w.Owner, s, "user_dotSlow",   "user_dotSlowTimer",   "SLOW");
+		s = appendDebuff(w.Owner, s, "user_dotWeak",   "user_dotWeakTimer",   "WEAK");
+		s = appendDebuff(w.Owner, s, "user_dotShock",  "user_dotShockTimer",  "SHOCK");
+		// CURSED breaks the naming pattern the other five follow -- its timer
+		// is user_timerCursed, not user_dotCursedTimer. Confirmed against
+		// zPlayer.zsc rather than assumed from the pattern.
+		s = appendDebuff(w.Owner, s, "user_dotCursed", "user_timerCursed", "CURSED");
+		return s.Length() > 0, s;
+	}
+
+	private static string appendTimer(Actor o, string s, string field, string tag)
+	{
+		int t;
+		if (!level.GetFieldInt(o, field, t) || t <= 0) return s;
+		string e = String.Format("%s %ds", tag, t);
+		return s.Length() ? (s .. "  " .. e) : e;
+	}
+
+	private static string appendDebuff(Actor o, string s, string meter, string timer, string tag)
+	{
+		int t;
+		if (level.GetFieldInt(o, timer, t) && t > 0)
+		{
+			string e = String.Format("%s %ds", tag, t);
+			return s.Length() ? (s .. "  " .. e) : e;
+		}
+
+		// Not armed yet -- but filling. Shown from a quarter full, below
+		// which it is noise rather than a warning.
+		int m;
+		if (!level.GetFieldInt(o, meter, m) || m < 25) return s;
+		string e2 = String.Format("%s %d%%", tag, m);
+		return s.Length() ? (s .. "  " .. e2) : e2;
+	}
+
+	//==========================================================================
+	// THE RUN'S OWN TALLY. Kills and shots this run, which the mod keeps and
+	// shows only on the automap.
+	//
+	// FOUND, KILLS THIS RUN, KILLS THIS MAP, SHOTS THIS RUN.
+	static bool, int, int, int TallyOf(Weapon w)
+	{
+		if (!w || !w.Owner || cv("wr_di_compat", 1.0) <= 0.0) return false, 0, 0, 0;
+
+		int k;
+		if (!level.GetFieldInt(w.Owner, "histKilled", k)) return false, 0, 0, 0;
+
+		int km, sh;
+		level.GetFieldInt(w.Owner, "mapKilled", km);
+		level.GetFieldInt(w.Owner, "histShots", sh);
+		return true, k, km, sh;
+	}
+
+	// ARENA WAVE PROGRESS. Only meaningful in Infinite Arena -- in Classic
+	// there is no wave and both halves read zero, which is what gates the
+	// row off without needing to know the mode.
+	//
+	// FOUND, KILLED, TOTAL.
+	static bool, int, int WaveOf(Weapon w)
+	{
+		if (!w || !w.Owner || cv("wr_di_compat", 1.0) <= 0.0) return false, 0, 0;
+
+		int mx;
+		if (!level.GetFieldInt(w.Owner, "user_arenaWaveMonMax", mx) || mx <= 0) return false, 0, 0;
+
+		int killed;
+		level.GetFieldInt(w.Owner, "user_arenaWaveMonKilled", killed);
+		return true, killed, mx;
+	}
+
 	//==========================================================================
 	// IS THE PLAYER INSIDE ONE OF THE MOD'S OWN MENUS.
 	//
