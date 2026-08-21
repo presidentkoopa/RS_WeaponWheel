@@ -5559,6 +5559,11 @@ class wr_Rig : EventHandler
 	{
 		mCmpUsed = 0;
 
+		// The three inventory-facing rows below need the player, which the
+		// two weapons alone cannot supply -- the one on the floor has no
+		// owner at all, which is the whole reason this card exists.
+		let pmo = players[consoleplayer].mo;
+
 		level.SetBillboardText(mCmpTitle, "" .. found.GetTag());
 		level.SetBillboardText(mCmpSub,   "vs " .. mine.GetTag());
 		level.SetBillboardText(mCmpHeadA, "THIS");
@@ -5582,40 +5587,79 @@ class wr_Rig : EventHandler
 		[tb, wb] = tierWordOf(mine);
 		if (ta && tb) cmpRow("TIER", wa, wb, 0);
 
-		// YOUR OWN RECORD WITH EACH KIND, and this is the row that makes the
-		// card a decision rather than a spec sheet.
+		// THE THREE ROWS THAT ACTUALLY DECIDE A PICKUP.
 		//
-		// NOT the instance's history. The weapon on the floor has none -- you
-		// have never held that one -- so comparing a real number against a
-		// guaranteed zero says nothing at all. Per CLASS instead: how have
-		// plasma rifles gone for you, against how shotguns have. That is a
-		// fact about YOU, it exists on both sides, and no mod in this game
-		// can tell you it.
-		bool ha, hb; int ak, ash, ahit, atic, bk, bsh, bhit, btic;
-		[ha, ak, ash, ahit, atic] = wr_StatTracker.ClassHistoryOf(found);
-		[hb, bk, bsh, bhit, btic] = wr_StatTracker.ClassHistoryOf(mine);
+		// These used to be the weapon's own kills, hit rate and time held,
+		// which was worthless here by construction: a weapon lying on the
+		// floor has never been carried, so all three are zero every single
+		// time, on every weapon, forever. Three rows of guaranteed nothing.
+		//
+		// What a player deciding whether to grab something actually needs,
+		// and cannot get from the stat rows above, is: can I feed it, do I
+		// already have one, and does it cost me a hand. All three are
+		// generic -- no mod field, no history, true the instant the weapon
+		// spawns.
 
-		if (ha || hb)
-		{
-			int aAcc = (ha && ash > 0) ? (ahit * 100 / ash) : -1;
-			int bAcc = (hb && bsh > 0) ? (bhit * 100 / bsh) : -1;
-			int accWin = (aAcc < 0 || bAcc < 0) ? 0
-			           : (aAcc > bAcc) ? 1 : (bAcc > aAcc) ? -1 : 0;
+		// ROUNDS IN RESERVE, for each weapon's own ammo type. The stat rows
+		// say which is the better gun; this says which one you can actually
+		// fire. A weapon whose ammo you have none of is not an upgrade, and
+		// nothing else on this card would tell you that.
+		//
+		// AmmoType1 is a CLASS property, readable off a weapon nobody owns
+		// -- unlike Ammo1, which is the live instance and is null until
+		// pickup. That is exactly why this works for a thing on the floor.
+		int aHave = ammoHeldFor(pmo, found);
+		int bHave = ammoHeldFor(pmo, mine);
+		if (aHave >= 0 || bHave >= 0)
+			cmpRow("YOU CARRY",
+			       aHave >= 0 ? String.Format("%d", aHave) : "--",
+			       bHave >= 0 ? String.Format("%d", bHave) : "--",
+			       (aHave < 0 || bHave < 0) ? 0
+			         : (aHave > 0 && bHave <= 0) ? 1
+			         : (bHave > 0 && aHave <= 0) ? -1 : 0);
 
-			cmpRow("YOUR HIT RATE",
-			       aAcc >= 0 ? String.Format("%d%%", aAcc) : "--",
-			       bAcc >= 0 ? String.Format("%d%%", bAcc) : "--", accWin);
+		// DO YOU ALREADY HAVE ONE. In a randomiser this is the difference
+		// between an upgrade and a duplicate roll of a gun already in your
+		// pack, and the stat rows cannot say which -- they describe the
+		// weapon, not your inventory.
+		bool ownAlready = pmo.FindInventory(found.GetClass()) != null;
+		cmpRow("ALREADY OWN", ownAlready ? "YES" : "NO", "HELD", 0);
 
-			cmpRow("YOUR KILLS",
-			       ha ? String.Format("%d", ak) : "--",
-			       hb ? String.Format("%d", bk) : "--", 0);
-
-			cmpRow("YOUR TIME",
-			       ha ? wr_StatTracker.HeldWord(atic) : "--",
-			       hb ? wr_StatTracker.HeldWord(btic) : "--", 0);
-		}
+		// WHAT IT COSTS YOU IN HANDS, which matters here in a way it does
+		// not in a flat game: a two-handed weapon takes the other hand out
+		// of play, so it is not competing on damage alone -- it is competing
+		// against whatever that hand was doing.
+		cmpRow("HANDS", handsWord(found), handsWord(mine), 0);
 
 		blankRestOfCompare();
+	}
+
+	// How many rounds the player is carrying of a weapon's OWN ammo type.
+	// -1 for a weapon that uses no ammo at all, which prints as "--" rather
+	// than as a misleading zero: a fist is not out of ammo.
+	private static int ammoHeldFor(PlayerPawn pmo, Weapon w)
+	{
+		if (!pmo || !w) return -1;
+
+		// The CLASS property, not the live Ammo1 instance -- Ammo1 is null
+		// on anything nobody owns, which is every weapon this card is for.
+		class<Ammo> at = w.AmmoType1;
+		if (at == null) return -1;
+
+		let it = pmo.FindInventory(at);
+		return it ? it.Amount : 0;
+	}
+
+	// Melee / two-handed / off-hand-only, in the same words the ring's own
+	// title row uses, so the two surfaces never describe one weapon
+	// differently.
+	private static string handsWord(Weapon w)
+	{
+		if (!w) return "--";
+		if (w.bMeleeWeapon) return "MELEE";
+		if (w.bTwoHanded)   return "TWO";
+		if (w.bOffhandWeapon) return "OFF";
+		return "ONE";
 	}
 
 	// One resolved stat, both weapons, side by side.
