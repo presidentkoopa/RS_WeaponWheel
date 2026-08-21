@@ -427,6 +427,20 @@ class wr_Rig : EventHandler
 	// would otherwise flash a card at every one. wr_inspect_dwell tics of
 	// rest on the same weapon before it appears -- the same reasoning, and
 	// the same shape, as the fan's own dwell.
+	// THE COMPARISON CARD'S OWN BILLBOARDS.
+	//
+	// A separate, wider plate rather than the ordinary sheet with extra rows,
+	// because a comparison is a different SHAPE of information: two values
+	// per line, which one string per row cannot lay out. Text billboards
+	// centre their text and offer no alignment control, so real columns mean
+	// real separate billboards -- three pools, each centred within its own
+	// narrow strip, which reads as aligned columns.
+	Array<int> mCmpLabel;    // stat name, left column
+	Array<int> mCmpA;        // the weapon being inspected, middle column
+	Array<int> mCmpB;        // what that hand is holding, right column
+	int mCmpPlate, mCmpAccent, mCmpTitle, mCmpSub, mCmpHeadA, mCmpHeadB;
+	int mCmpUsed;
+
 	Weapon mInspectWpn;      // what is currently being inspected, if anything
 	Weapon mInspectCand;     // what the laser is resting on right now
 	int    mInspectTics;     // how long it has rested there
@@ -1931,6 +1945,7 @@ class wr_Rig : EventHandler
 	{
 		clearSheet();
 		clearStars();
+		clearCompare();
 
 		for (int i = 0; i < mIds.Size(); ++i)
 		{
@@ -5400,141 +5415,358 @@ class wr_Rig : EventHandler
 		int want = int(cv("wr_inspect_dwell", 18.0));
 		if (mInspectTics < want) return;
 
-		// Past the dwell: build once, then only re-fill when the target
-		// changes. buildSheetRows is not cheap enough to run every tic for a
-		// card that is not moving between weapons.
+		// TWO DIFFERENT CARDS, and which one appears depends on whether
+		// there is anything to compare against.
+		//
+		// With a weapon in that hand, the question is a TRADE -- this versus
+		// that -- and a table answers it. With an empty hand there is no
+		// trade, only "what is this", which is exactly what the ordinary
+		// data sheet already says better than a table with one column
+		// filled could.
+		Weapon mine = (mInspectHand == 1) ? pmo.player.OffhandWeapon
+		                                  : pmo.player.ReadyWeapon;
+		bool wantCompare = (mine != null && mine != found
+		                    && cv("wr_inspect_delta", 1.0) > 0.0);
+
+		// Built once and only re-strung when the target changes -- neither
+		// fill is cheap enough to run every tic for a card that is not
+		// moving between weapons.
 		if (mInspectWpn != found)
 		{
-			if (mSheetPlate == 0) buildSheet();
 			mInspectWpn = found;
-			mSheetShown = null;          // force buildSheetRows to redraw
-			buildSheetRows(found);
-			inspectRows(found);
-			blankRestOfSheet();
+
+			if (wantCompare)
+			{
+				clearSheet();
+				if (mCmpPlate == 0) buildCompare();
+				fillCompare(found, mine);
+			}
+			else
+			{
+				clearCompare();
+				if (mSheetPlate == 0) buildSheet();
+				mSheetShown = null;          // force buildSheetRows to redraw
+				buildSheetRows(found);
+				blankRestOfSheet();
+			}
 		}
 
-		layoutInspect(pmo);
+		if (wantCompare) layoutCompare(pmo);
+		else             layoutInspect(pmo);
 	}
 
 	//==========================================================================
-	// THE DELTA ROWS -- the reason inspect mode exists.
+	// THE COMPARISON CARD.
 	//
-	// A card that says "DPS 340" about a gun on the floor is not an answer.
-	// The question is always "compared to what I am holding", and until now
-	// the player has had to do that subtraction in their head across two
-	// screens they could never see at once.
-	//
-	// COMPARED AGAINST THE POINTING HAND'S OWN WEAPON, not against some
-	// notional best. You point at the floor with one hand; the gun that hand
-	// would be giving up is the one it is currently holding. That is the
-	// trade actually on offer.
-	//
-	// ONLY WHERE BOTH SIDES CAN ANSWER. A delta needs two numbers, and half
-	// a comparison is worse than none -- it reads as a change when it is
-	// really a missing measurement. wr_stats.zs returning UNKNOWN on either
-	// side means the row is skipped entirely rather than shown as zero.
-	//
-	// AND NEVER ACROSS A MASK. If either weapon's stat is cursed, the delta
-	// is not drawn: subtracting a known number from a hidden one and showing
-	// the result hands back exactly the value the curse exists to hide.
-	private void inspectRows(Weapon found)
+	// Built once, restrung as the target changes, torn down with inspect
+	// mode -- the same lifecycle the sheet's own row pool has, and for the
+	// same reason: a billboard created per tic is a billboard leaked per tic.
+	private void buildCompare()
 	{
-		if (cv("wr_inspect_delta", 1.0) <= 0.0) return;
+		clearCompare();
 
-		let pmo = players[consoleplayer].mo;
-		if (!pmo || !pmo.player) return;
+		double w = panelWNow() * CMP_W_CARDS;
+		double h = panelHNow() * CMP_H_CARDS;
 
-		Weapon mine = (mInspectHand == 1) ? pmo.player.OffhandWeapon
-		                                  : pmo.player.ReadyWeapon;
-		if (!mine || mine == found) return;
+		mCmpPlate = level.AddBillboardPersistent(
+			(0, 0, 0), w, h, 0, 0,
+			LevelLocals.BBF_FIXED, plateKind(), plateShape(),
+			SHEET_BG, LevelLocals.BBFL_NOHIT, 0, "");
+		level.SetBillboardGradient(mCmpPlate, SHEET_BG2);
 
-		sheetRow("--- VS HELD ---", SHEET_DIM);
+		mCmpAccent = level.AddBillboardPersistent(
+			(0, 0, 0), w, 0.3, 0, 0,
+			LevelLocals.BBF_FIXED, LevelLocals.BB_PANEL, 0,
+			SHEET_ACCENT, LevelLocals.BBFL_NOHIT, 0, "");
 
-		deltaRow(found, mine, "DPS", 0);
-		deltaRow(found, mine, "DMG", 1);
-		deltaRow(found, mine, "ROF", 2);
-		deltaRow(found, mine, "MAG", 3);
+		mCmpTitle = mkCmpText(SHEET_ACCENT);
+		mCmpSub   = mkCmpText(SHEET_DIM);
+		mCmpHeadA = mkCmpText(SHEET_DIM);
+		mCmpHeadB = mkCmpText(SHEET_DIM);
 
-		// PER-CLASS HISTORY, and it only appears here. A weapon on the floor
-		// has no history of its own -- you have never held THAT one -- but
-		// you may well have carried others of its kind, and "your plasma
-		// rifles: 44% over two hours" answers "what will this be like for me"
-		// better than any declared stat can.
-		bool hasHist; int hKills, hShots, hHits, hTics;
-		[hasHist, hKills, hShots, hHits, hTics] = wr_StatTracker.ClassHistoryOf(found);
-		if (hasHist)
+		for (int i = 0; i < CMP_ROW_POOL; ++i)
 		{
-			int hAcc = hShots > 0 ? (hHits * 100 / hShots) : 0;
-			sheetRow(String.Format("YOURS: %d KILLS  %d%%  %s",
-			                       hKills, hAcc, wr_StatTracker.HeldWord(hTics)), SHEET_TEXT);
+			mCmpLabel.Push(mkCmpText(SHEET_DIM));
+			mCmpA.Push(mkCmpText(SHEET_TEXT));
+			mCmpB.Push(mkCmpText(SHEET_TEXT));
 		}
-		else
-			sheetRow("NEVER HELD ONE", SHEET_DIM);
+		mCmpUsed = 0;
 	}
 
-	// One stat, both weapons, as a signed difference. `which` selects the
-	// stat rather than passing a function pointer, which ZScript has no
-	// clean form for here.
+	private int mkCmpText(int col)
+	{
+		return level.AddBillboardPersistent(
+			(0, 0, 0), 3.5, 2.5, 0, 0,
+			LevelLocals.BBF_FIXED, LevelLocals.BB_TEXT, 0,
+			col, LevelLocals.BBFL_NOHIT, 0, "");
+	}
+
+	private void clearCompare()
+	{
+		for (int i = 0; i < mCmpLabel.Size(); ++i) if (mCmpLabel[i]) level.RemoveBillboard(mCmpLabel[i]);
+		for (int i = 0; i < mCmpA.Size(); ++i)     if (mCmpA[i])     level.RemoveBillboard(mCmpA[i]);
+		for (int i = 0; i < mCmpB.Size(); ++i)     if (mCmpB[i])     level.RemoveBillboard(mCmpB[i]);
+		mCmpLabel.Clear(); mCmpA.Clear(); mCmpB.Clear();
+
+		if (mCmpPlate)  level.RemoveBillboard(mCmpPlate);
+		if (mCmpAccent) level.RemoveBillboard(mCmpAccent);
+		if (mCmpTitle)  level.RemoveBillboard(mCmpTitle);
+		if (mCmpSub)    level.RemoveBillboard(mCmpSub);
+		if (mCmpHeadA)  level.RemoveBillboard(mCmpHeadA);
+		if (mCmpHeadB)  level.RemoveBillboard(mCmpHeadB);
+		mCmpPlate = 0; mCmpAccent = 0; mCmpTitle = 0; mCmpSub = 0;
+		mCmpHeadA = 0; mCmpHeadB = 0;
+		mCmpUsed = 0;
+	}
+
+	// One line: a label and two values. Colour is decided per SIDE rather
+	// than per row -- the better of the two is lit, the loser dimmed -- so
+	// the verdict reads without parsing either number.
+	// better: 1 = the world weapon wins, -1 = the held one, 0 = neither.
+	private void cmpRow(string label, string a, string b, int better)
+	{
+		if (mCmpUsed >= mCmpLabel.Size()) return;
+		int i = mCmpUsed;
+		++mCmpUsed;
+
+		level.SetBillboardText(mCmpLabel[i], label);
+		level.UpdateBillboard(mCmpLabel[i], 0, SHEET_DIM);
+
+		level.SetBillboardText(mCmpA[i], a);
+		level.UpdateBillboard(mCmpA[i], 0,
+			(better > 0) ? color(COLOR_DELTA_UP)
+			: (better < 0) ? color(COLOR_DELTA_DOWN) : color(SHEET_TEXT));
+
+		level.SetBillboardText(mCmpB[i], b);
+		level.UpdateBillboard(mCmpB[i], 0,
+			(better < 0) ? color(COLOR_DELTA_UP)
+			: (better > 0) ? color(COLOR_DELTA_DOWN) : color(SHEET_TEXT));
+	}
+
+	private void blankRestOfCompare()
+	{
+		for (int i = mCmpUsed; i < mCmpLabel.Size(); ++i)
+		{
+			level.SetBillboardText(mCmpLabel[i], "");
+			level.SetBillboardText(mCmpA[i], "");
+			level.SetBillboardText(mCmpB[i], "");
+		}
+	}
+
+	// Fill the card for one pair. found is the weapon in the world, mine the
+	// one that hand is currently holding.
+	private void fillCompare(Weapon found, Weapon mine)
+	{
+		mCmpUsed = 0;
+
+		level.SetBillboardText(mCmpTitle, "" .. found.GetTag());
+		level.SetBillboardText(mCmpSub,   "vs " .. mine.GetTag());
+		level.SetBillboardText(mCmpHeadA, "THIS");
+		level.SetBillboardText(mCmpHeadB, "HELD");
+
+		cmpStat(found, mine, "DPS", 0);
+		cmpStat(found, mine, "DAMAGE", 1);
+		cmpStat(found, mine, "ROF", 2);
+		cmpStat(found, mine, "MAG", 3);
+		cmpStat(found, mine, "PELLETS", 4);
+
+		// AMMO TYPE, and it is not a number -- it is the question "can I even
+		// feed this". A better gun you have no ammo for is not better, and
+		// nothing else on this card would say so.
+		cmpRow("AMMO", ammoLabel(found), ammoLabel(mine), 0);
+
+		// TIER, only when BOTH sides have one. A rarity word against a blank
+		// is not a comparison.
+		bool ta, tb; string wa, wb;
+		[ta, wa] = tierWordOf(found);
+		[tb, wb] = tierWordOf(mine);
+		if (ta && tb) cmpRow("TIER", wa, wb, 0);
+
+		// YOUR OWN RECORD WITH EACH KIND, and this is the row that makes the
+		// card a decision rather than a spec sheet.
+		//
+		// NOT the instance's history. The weapon on the floor has none -- you
+		// have never held that one -- so comparing a real number against a
+		// guaranteed zero says nothing at all. Per CLASS instead: how have
+		// plasma rifles gone for you, against how shotguns have. That is a
+		// fact about YOU, it exists on both sides, and no mod in this game
+		// can tell you it.
+		bool ha, hb; int ak, ash, ahit, atic, bk, bsh, bhit, btic;
+		[ha, ak, ash, ahit, atic] = wr_StatTracker.ClassHistoryOf(found);
+		[hb, bk, bsh, bhit, btic] = wr_StatTracker.ClassHistoryOf(mine);
+
+		if (ha || hb)
+		{
+			int aAcc = (ha && ash > 0) ? (ahit * 100 / ash) : -1;
+			int bAcc = (hb && bsh > 0) ? (bhit * 100 / bsh) : -1;
+			int accWin = (aAcc < 0 || bAcc < 0) ? 0
+			           : (aAcc > bAcc) ? 1 : (bAcc > aAcc) ? -1 : 0;
+
+			cmpRow("YOUR HIT RATE",
+			       aAcc >= 0 ? String.Format("%d%%", aAcc) : "--",
+			       bAcc >= 0 ? String.Format("%d%%", bAcc) : "--", accWin);
+
+			cmpRow("YOUR KILLS",
+			       ha ? String.Format("%d", ak) : "--",
+			       hb ? String.Format("%d", bk) : "--", 0);
+
+			cmpRow("YOUR TIME",
+			       ha ? wr_StatTracker.HeldWord(atic) : "--",
+			       hb ? wr_StatTracker.HeldWord(btic) : "--", 0);
+		}
+
+		blankRestOfCompare();
+	}
+
+	// One resolved stat, both weapons, side by side.
 	//
-	// A RANGE COMPARES BY ITS MIDPOINT. Damage and DPS come back as low-high
-	// spans, and two spans have no single difference -- but the midpoint is
-	// what a player means by "hits harder", and showing the full four-number
-	// comparison would cost two rows to say one thing.
-	private void deltaRow(Weapon a, Weapon b, string label, int which)
+	// NEVER PICKS A WINNER ACROSS A MASK. A cursed stat still draws its row
+	// -- the player should see that the stat exists and is hidden -- but as
+	// ??? with neither side lit, because colouring one better would leak the
+	// very comparison the curse exists to prevent.
+	private void cmpStat(Weapon a, Weapon b, string label, int which)
 	{
 		int sa, sb;
 		double va, vb;
+		string ta, tb;
 
-		if (which == 0)
+		if (which == 0 || which == 1)
 		{
 			int alo, ahi, blo, bhi;
-			[sa, alo, ahi] = wr_Stats.Dps(a);
-			[sb, blo, bhi] = wr_Stats.Dps(b);
+			if (which == 0) { [sa, alo, ahi] = wr_Stats.Dps(a);    [sb, blo, bhi] = wr_Stats.Dps(b); }
+			else            { [sa, alo, ahi] = wr_Stats.Damage(a); [sb, blo, bhi] = wr_Stats.Damage(b); }
+			// A RANGE COMPARES BY ITS MIDPOINT -- two spans have no single
+			// difference, and the midpoint is what a player means by "hits
+			// harder". Both full spans are still PRINTED; only the verdict
+			// is decided on the midpoint.
 			va = double(alo + ahi) * 0.5;
 			vb = double(blo + bhi) * 0.5;
-		}
-		else if (which == 1)
-		{
-			int alo, ahi, blo, bhi;
-			[sa, alo, ahi] = wr_Stats.Damage(a);
-			[sb, blo, bhi] = wr_Stats.Damage(b);
-			va = double(alo + ahi) * 0.5;
-			vb = double(blo + bhi) * 0.5;
+			ta = wr_Stats.Span(alo, ahi);
+			tb = wr_Stats.Span(blo, bhi);
 		}
 		else if (which == 2)
 		{
 			[sa, va] = wr_Stats.Rof(a);
 			[sb, vb] = wr_Stats.Rof(b);
+			ta = String.Format("%.1f/s", va);
+			tb = String.Format("%.1f/s", vb);
 		}
-		else
+		else if (which == 3)
 		{
 			int ai, bi;
 			[sa, ai] = wr_Stats.Magazine(a);
 			[sb, bi] = wr_Stats.Magazine(b);
 			va = double(ai); vb = double(bi);
+			ta = String.Format("%d", ai);
+			tb = String.Format("%d", bi);
+		}
+		else
+		{
+			int ai, bi;
+			[sa, ai] = wr_Stats.Pellets(a);
+			[sb, bi] = wr_Stats.Pellets(b);
+			va = double(ai); vb = double(bi);
+			ta = String.Format("%d%s", ai, wr_Stats.FloorMark(sa));
+			tb = String.Format("%d%s", bi, wr_Stats.FloorMark(sb));
 		}
 
-		// Both sides must be real, and neither may be masked -- see the
-		// block comment above on why a delta across a curse leaks it.
-		if (sa == wr_Stats.SRC_UNKNOWN || sb == wr_Stats.SRC_UNKNOWN) return;
-		if (sa == wr_Stats.SRC_MASKED  || sb == wr_Stats.SRC_MASKED)
+		if (sa == wr_Stats.SRC_MASKED || sb == wr_Stats.SRC_MASKED)
 		{
-			sheetRow(label .. "  ???", SHEET_LOCK);
+			cmpRow(label,
+			       sa == wr_Stats.SRC_MASKED ? "???" : ta,
+			       sb == wr_Stats.SRC_MASKED ? "???" : tb, 0);
 			return;
 		}
 
-		double d = va - vb;
-		if (d > -0.05 && d < 0.05)
-		{
-			sheetRow(label .. "  SAME", SHEET_DIM);
-			return;
-		}
+		// A row neither side can answer says nothing and is skipped. One side
+		// answering is still worth drawing, with the other as "--".
+		if (sa == wr_Stats.SRC_UNKNOWN && sb == wr_Stats.SRC_UNKNOWN) return;
+		if (sa == wr_Stats.SRC_UNKNOWN) { cmpRow(label, "--", tb, 0); return; }
+		if (sb == wr_Stats.SRC_UNKNOWN) { cmpRow(label, ta, "--", 0); return; }
 
-		// Colour carries the verdict so the sign does not have to be read --
-		// green up, red down, the one place on this sheet where a colour
-		// means better-or-worse rather than category.
-		color dc = (d > 0.0) ? color(COLOR_DELTA_UP) : color(COLOR_DELTA_DOWN);
-		sheetRow(String.Format("%s  %s%.1f", label, d > 0.0 ? "+" : "", d), dc);
+		int better = (va > vb + 0.05) ? 1 : (vb > va + 0.05) ? -1 : 0;
+		cmpRow(label, ta, tb, better);
+	}
+
+	// The tier WORD for whichever mod rolled this weapon, if any did. Reuses
+	// the same four readers the ring title row uses rather than starting a
+	// second table that could drift out of step with it.
+	private static bool, string tierWordOf(Weapon w)
+	{
+		int tier;
+		if (level.GetFieldInt(w, "Tier", tier)) return true, tierWord(tier);
+
+		bool got; int r;
+		[got, r] = wr_CompatLegenDoom.RarityOf(w);
+		if (got) return true, wr_CompatLegenDoom.RarityWord(r);
+
+		[got, r] = wr_CompatDRLA.TierOf(w);
+		if (got) return true, wr_CompatDRLA.TierWord(r);
+
+		[got, r] = wr_CompatDoomablo.RarityOf(w);
+		if (got) return true, wr_CompatDoomablo.RarityWord(r);
+
+		return false, "";
+	}
+
+	// Three columns, laid out every tic so the card tracks the hand rather
+	// than hanging where the pickup was first seen.
+	private void layoutCompare(PlayerPawn pmo)
+	{
+		if (mCmpPlate == 0) return;
+
+		double viewYaw = pmo.angle;
+		Vector3 right  = (cos(viewYaw - 90), sin(viewYaw - 90), 0);
+		Vector3 centre = handPos(pmo, mInspectHand) + (0, 0, cv("wr_rise", 2.0));
+		Vector3 lift   = (cos(viewYaw + 180), sin(viewYaw + 180), 0) * LABEL_LIFT;
+		double  yaw    = viewYaw + 180;
+		double  tilt   = PANEL_TILT;
+
+		double w = panelWNow() * CMP_W_CARDS;
+		double h = panelHNow() * CMP_H_CARDS;
+
+		level.MoveBillboard(mCmpPlate, centre);
+		level.ResizeBillboard(mCmpPlate, w, h);
+		level.OrientBillboard(mCmpPlate, yaw, tilt, LevelLocals.BBF_FIXED);
+
+		double top = h * 0.5;
+
+		level.MoveBillboard(mCmpAccent, centre + lift + (0, 0, top - h * 0.03));
+		level.ResizeBillboard(mCmpAccent, w * 0.94, h * 0.02);
+		level.OrientBillboard(mCmpAccent, yaw, tilt, LevelLocals.BBF_FIXED);
+
+		double rowH = h * CMP_ROW_FRAC;
+
+		// Title and subtitle span the whole card; the headers and every row
+		// below them sit in their own column.
+		placeCmp(mCmpTitle, centre + lift + (0, 0, top - h * 0.09), w * 0.9, rowH * 1.2, yaw, tilt);
+		placeCmp(mCmpSub,   centre + lift + (0, 0, top - h * 0.17), w * 0.9, rowH * 0.9, yaw, tilt);
+
+		double colL = -w * CMP_COL_LABEL;
+		double colA =  w * CMP_COL_A;
+		double colB =  w * CMP_COL_B;
+		double colW =  w * CMP_COL_W;
+
+		double y = top - h * CMP_ROWS_TOP;
+		placeCmp(mCmpHeadA, centre + lift + right * colA + (0, 0, y), colW, rowH * 0.85, yaw, tilt);
+		placeCmp(mCmpHeadB, centre + lift + right * colB + (0, 0, y), colW, rowH * 0.85, yaw, tilt);
+		y -= rowH * CMP_ROW_PITCH;
+
+		for (int i = 0; i < mCmpLabel.Size(); ++i)
+		{
+			placeCmp(mCmpLabel[i], centre + lift + right * colL + (0, 0, y), w * 0.30, rowH, yaw, tilt);
+			placeCmp(mCmpA[i],     centre + lift + right * colA + (0, 0, y), colW,     rowH, yaw, tilt);
+			placeCmp(mCmpB[i],     centre + lift + right * colB + (0, 0, y), colW,     rowH, yaw, tilt);
+			y -= rowH * CMP_ROW_PITCH;
+		}
+	}
+
+	private void placeCmp(int id, Vector3 pos, double w, double h, double yaw, double tilt)
+	{
+		if (id == 0) return;
+		level.MoveBillboard(id, pos);
+		level.ResizeBillboard(id, w, h);
+		level.OrientBillboard(id, yaw, tilt, LevelLocals.BBF_FIXED);
 	}
 
 	// Tear the inspect sheet down, but ONLY if inspect is what built it --
@@ -5547,6 +5779,7 @@ class wr_Rig : EventHandler
 		if (mInspectWpn == null) return;
 
 		mInspectWpn = null;
+		clearCompare();
 		if (!mOpen) clearSheet();
 	}
 
@@ -7133,6 +7366,35 @@ class wr_Rig : EventHandler
 	const SHEET_ROW_FRAC   = 0.045;  // one row's height
 	const SHEET_ROWS_TOP   = 0.21;   // where the first row starts, from the top
 	const SHEET_ROW_PITCH  = 1.30;   // row spacing as a multiple of row height
+
+	// THE COMPARISON CARD, in card widths like the sheet so it tracks
+	// wr_panel_* and wr_scale rather than being a fixed size that stops
+	// matching the moment either is touched.
+	//
+	// WIDER AND SHORTER than the data sheet on purpose. The sheet is a
+	// column of facts about one weapon and grows downward; this is a table
+	// with three columns and a fixed number of rows, so it needs width far
+	// more than it needs height.
+	const CMP_W_CARDS   = 4.2;
+	const CMP_H_CARDS   = 3.0;
+	const CMP_ROW_FRAC  = 0.058;
+	const CMP_ROWS_TOP  = 0.26;
+	const CMP_ROW_PITCH = 1.30;
+
+	// Column centres, as fractions of the card's own width from its middle.
+	// The label column is wide and sits left of centre; the two value
+	// columns are narrower, equal, and straddle the right half so the eye
+	// can run down either one.
+	const CMP_COL_LABEL = 0.30;
+	const CMP_COL_A     = 0.10;
+	const CMP_COL_B     = 0.34;
+	const CMP_COL_W     = 0.26;
+
+	// Eight rows: five resolved stats, ammo, tier, and the three history
+	// lines -- which is more than eight, so the history rows are what get
+	// dropped first on a weapon that fills every stat row. That is the right
+	// order: a stat is about the trade, history is about you.
+	const CMP_ROW_POOL  = 10;
 
 	// How many row billboards the sheet allocates, once, up front.
 	//
