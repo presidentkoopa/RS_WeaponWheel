@@ -601,6 +601,31 @@ user bool  wr_bd_compat = true;
 // wr_tier_color -- purely the rows it adds.
 user bool  wr_ca_compat = true;
 
+// INSPECT MODE -- the data card without the wheel.
+//
+// Point at a weapon lying in the world and, after a moment's rest, the same
+// sheet the ring uses appears for it -- plus how it compares to the gun that
+// hand is already holding. The sheet has only ever existed inside the wheel,
+// which made it useless for the one thing it is best at: deciding whether
+// what is on the floor beats what you have.
+//
+// No new trace is cast for this. The engine already tracks what each hand's
+// laser rests on, every frame, for the laser sight itself.
+user bool  wr_inspect = true;
+
+// Tics of rest on the same weapon before the card appears. Sweeping an arm
+// across a room full of pickups would otherwise flash a card at every one.
+// 0 is instant.
+user int   wr_inspect_dwell = 18;
+
+// The comparison rows -- how the weapon you are pointing at differs from the
+// one that hand is holding. Off leaves the plain readout with no deltas.
+//
+// A delta is never drawn across a curse: subtracting a known number from a
+// hidden one and printing the result hands back exactly the value the curse
+// exists to hide.
+user bool  wr_inspect_delta = true;
+
 // This wheel's OWN kill/shot/accuracy/headshot tracker -- see
 // wr_stattracker.zs. Not a compat switch: nothing above this reads another
 // mod's fields, it watches the game happen and keeps its own counters, per

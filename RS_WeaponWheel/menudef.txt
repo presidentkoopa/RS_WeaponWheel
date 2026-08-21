@@ -117,6 +117,14 @@ OptionMenu wr_Options
 	// loaded -- counted by this mod as you play rather than read off another
 	// mod, so it works on every weapon including plain vanilla ones.
 	Option "  Track kills and accuracy", "wr_stats_track", "OnOff"
+
+	StaticText ""
+	StaticText "Inspect a weapon in the world", gold
+	// Point at a gun on the floor and the same sheet appears for it, with
+	// how it compares to what that hand is already holding.
+	Option "Show card when pointing at a weapon", "wr_inspect", "OnOff"
+	Slider "  Rest on it for (tics)",   "wr_inspect_dwell", 0, 70, 2, 0
+	Option "  Compare against held weapon", "wr_inspect_delta", "OnOff"
 	Submenu "  Weapon mod compatibility...", wr_Compat
 
 	StaticText ""

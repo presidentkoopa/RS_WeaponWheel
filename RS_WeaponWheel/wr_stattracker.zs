@@ -57,8 +57,36 @@ class wr_WeaponStats
 	// actually spent behind THIS weapon.
 	int ticsHeld;
 
-	double damageSum;
+	// DAMAGE AS A RANGE, NOT AN AVERAGE. Most Doom weapons roll their
+	// damage -- a pistol lands 5, 10 or 15, never "10" -- so averaging the
+	// hits into one figure invents a number the weapon cannot actually
+	// deal, and makes the reading depend on how many times you happened to
+	// fire it. The lowest and highest that have actually landed ARE what
+	// the gun does, are honest after eight shots and after eight hundred,
+	// and simply tighten toward the true bounds as the extremes get found.
+	//
+	// damageSamples is kept even though nothing averages any more: it is
+	// what says whether the range has anything in it at all.
+	int damageLow;
+	int damageHigh;
 	int damageSamples;
+
+	// MAGAZINE CAPACITY, OBSERVED. The obvious source, Ammo2.MaxAmount, is
+	// the ammo CLASS's default rather than this weapon's own capacity, and
+	// mods routinely give that headroom -- so a full magazine prints as a
+	// fraction of a number it never reaches. The highest load this weapon
+	// has ever actually been seen holding IS its capacity, needs no field
+	// from any mod, and self-corrects if a mod changes the cap mid-run.
+	int magHigh;
+
+	// PELLETS, AND THIS ONE IS A FLOOR RATHER THAN A COUNT. Nothing reports
+	// "that shot was eight pellets" -- there is no field and no event for
+	// it -- so this counts how many separate hits landed inside a single
+	// shot's window, which only ever finds the pellets that CONNECTED. A
+	// shotgun fired at a wall reads low forever. Shown as "at least N", not
+	// as the spread, because that is all it can honestly claim.
+	int pelletMax;
+	int pelletRun;
 
 	// Ammo-drain shot detection needs a baseline to compare against, per
 	// weapon, updated every tic that weapon is in a hand -- see
@@ -81,6 +109,30 @@ class wr_WeaponStats
 	int pendingHitUntilTic;
 }
 
+// PER-CLASS HISTORY, kept alongside the per-instance records above.
+//
+// The instance records answer "how has THIS gun gone", which is the right
+// question for a weapon in your hands and useless for one on the floor --
+// you have never held that one, so it has no history at all. This answers
+// the next best question, and arguably the more useful one when deciding
+// whether to pick something up: how have guns OF THIS KIND gone for you.
+// "Your plasma rifles: 44% accuracy over two hours" is something no mod and
+// no HUD in this game can tell you, and it survives the weapon itself being
+// dropped, destroyed or left behind.
+class wr_ClassStats
+{
+	Name cls;
+
+	int kills;
+	int shotsFired;
+	int hits;
+	int headshots;
+	int ticsHeld;
+	int damageLow;
+	int damageHigh;
+	int damageSamples;
+}
+
 // The hidden per-player carrier. Auto-granted lazily (wr_StatLedger.StatsFor
 // grants it itself the first time anything asks, rather than depending
 // solely on PlayerSpawned/PlayerEntered firing) so an existing save from
@@ -88,6 +140,7 @@ class wr_WeaponStats
 class wr_StatLedger : Inventory
 {
 	Array<wr_WeaponStats> mStats;
+	Array<wr_ClassStats>  mClassStats;
 
 	default
 	{
@@ -132,6 +185,34 @@ class wr_StatLedger : Inventory
 		s.wpn = w;
 		ledger.mStats.Push(s);
 		return s;
+	}
+
+	// The per-CLASS counterpart. Keyed by the weapon's class name rather
+	// than by an object reference, so unlike the instance records these are
+	// never pruned -- the whole point is that they outlive the gun.
+	static play wr_ClassStats ClassStatsFor(PlayerPawn pawn, Name cls, bool create)
+	{
+		if (!pawn || cls == 'None') return null;
+
+		let ledger = wr_StatLedger(pawn.FindInventory("wr_StatLedger"));
+		if (!ledger)
+		{
+			if (!create) return null;
+			ledger = wr_StatLedger(pawn.GiveInventoryType("wr_StatLedger"));
+			if (!ledger) return null;
+		}
+
+		for (int i = 0; i < ledger.mClassStats.Size(); ++i)
+		{
+			if (ledger.mClassStats[i].cls == cls) return ledger.mClassStats[i];
+		}
+
+		if (!create) return null;
+
+		let c = new("wr_ClassStats");
+		c.cls = cls;
+		ledger.mClassStats.Push(c);
+		return c;
 	}
 }
 
@@ -202,8 +283,17 @@ class wr_StatEvents : EventHandler
 		// gun sitting in the backpack.
 		s.ticsHeld++;
 
+		let cs = wr_StatLedger.ClassStatsFor(pawn, w.GetClassName(), true);
+		if (cs) cs.ticsHeld++;
+
 		int a1 = w.Ammo1 ? w.Ammo1.Amount : 0;
 		int a2 = w.Ammo2 ? w.Ammo2.Amount : 0;
+
+		// MAGAZINE CAPACITY, observed as a high-water mark -- see the field's
+		// own note. Ammo2 is the magazine where a weapon has one; the check
+		// against Ammo1 being a DIFFERENT item is what distinguishes a real
+		// magazine from a weapon whose Ammo1 and Ammo2 are the same pool.
+		if (w.Ammo2 != null && w.Ammo1 != w.Ammo2 && a2 > s.magHigh) s.magHigh = a2;
 
 		if (!s.seenAmmo)
 		{
@@ -229,6 +319,13 @@ class wr_StatEvents : EventHandler
 		if (!fired) return;
 
 		s.shotsFired++;
+		if (cs) cs.shotsFired++;
+
+		// A new shot closes the last one's pellet run and starts a fresh
+		// count -- see pelletMax's note on why this is a floor.
+		if (s.pelletRun > s.pelletMax) s.pelletMax = s.pelletRun;
+		s.pelletRun = 0;
+
 		s.pendingHitUntilTic = level.maptime + HIT_WINDOW;
 
 		if (s.lastFireTic > 0)
@@ -276,8 +373,6 @@ class wr_StatEvents : EventHandler
 		let s = wr_StatLedger.StatsFor(pawn, w, true);
 		if (!s) return;
 
-		s.damageSum += e.Damage;
-
 		// RS_HEADSHOTS' BONUS IS NOT A SECOND HIT, AND MUST NOT COUNT AS ONE.
 		//
 		// That mod cannot raise a headshot's damage in place -- WorldThing
@@ -293,12 +388,52 @@ class wr_StatEvents : EventHandler
 		// (it was not a separate hit). Hits themselves need no such guard:
 		// pendingHitUntilTic is consumed by the first event and cannot be
 		// claimed twice.
-		if (e.DamageType != 'HS_HeadshotBonus') s.damageSamples++;
+		//
+		// The range is recorded from the ORIGINAL hit only, for the same
+		// reason: a bonus is part of one landed shot, not a second landing,
+		// and folding it in as its own sample would put a 15-damage bonus
+		// into the low end of a weapon whose real floor is 30.
+		if (e.DamageType != 'HS_HeadshotBonus')
+		{
+			int d = e.Damage;
+			if (d > 0)
+			{
+				if (s.damageSamples <= 0) { s.damageLow = d; s.damageHigh = d; }
+				else
+				{
+					if (d < s.damageLow)  s.damageLow  = d;
+					if (d > s.damageHigh) s.damageHigh = d;
+				}
+				s.damageSamples++;
+
+				let cs = wr_StatLedger.ClassStatsFor(pawn, w.GetClassName(), true);
+				if (cs)
+				{
+					if (cs.damageSamples <= 0) { cs.damageLow = d; cs.damageHigh = d; }
+					else
+					{
+						if (d < cs.damageLow)  cs.damageLow  = d;
+						if (d > cs.damageHigh) cs.damageHigh = d;
+					}
+					cs.damageSamples++;
+				}
+			}
+
+			// PELLETS, counted as separate landings inside one shot's window
+			// -- a floor on the true count, never the spread itself. Only
+			// the original hits count; a headshot bonus would inflate a
+			// single-pellet weapon to two.
+			if (s.pendingHitUntilTic > 0 && level.maptime <= s.pendingHitUntilTic)
+				s.pelletRun++;
+		}
 
 		if (s.pendingHitUntilTic > 0 && level.maptime <= s.pendingHitUntilTic)
 		{
 			s.hits++;
 			s.pendingHitUntilTic = 0;
+
+			let cs = wr_StatLedger.ClassStatsFor(pawn, w.GetClassName(), true);
+			if (cs) cs.hits++;
 		}
 	}
 
@@ -314,6 +449,9 @@ class wr_StatEvents : EventHandler
 
 		let s = wr_StatLedger.StatsFor(pawn, w, true);
 		if (s) s.kills++;
+
+		let cs = wr_StatLedger.ClassStatsFor(pawn, w.GetClassName(), true);
+		if (cs) cs.kills++;
 	}
 
 	override void WorldThingSpawned(WorldEvent e)
@@ -328,6 +466,9 @@ class wr_StatEvents : EventHandler
 
 		let s = wr_StatLedger.StatsFor(pawn, w, true);
 		if (s) s.headshots++;
+
+		let cs = wr_StatLedger.ClassStatsFor(pawn, w.GetClassName(), true);
+		if (cs) cs.headshots++;
 	}
 
 	// Lazy-grant covers the general case (StatsFor grants on first use),
@@ -384,13 +525,58 @@ class wr_StatTracker
 		return true, s.kills, s.shotsFired, s.hits;
 	}
 
-	// FOUND, AVERAGE DAMAGE PER HIT, SAMPLES. An estimate -- see this
-	// file's header and the "~" the sheet prints in front of it.
-	static play bool, double, int DamageOf(Weapon w)
+	// FOUND, LOW, HIGH. A range rather than an average -- see damageLow's
+	// own note. low == high is a weapon that has only ever landed one value,
+	// which is either a fixed-damage weapon or one that has not been fired
+	// enough to find its spread; the caller prints a single number for that
+	// case rather than "12-12".
+	static play bool, int, int DamageOf(Weapon w)
 	{
 		let s = lookup(w);
-		if (!s || s.damageSamples <= 0) return false, 0.0, 0;
-		return true, s.damageSum / double(s.damageSamples), s.damageSamples;
+		if (!s || s.damageSamples <= 0) return false, 0, 0;
+		return true, s.damageLow, s.damageHigh;
+	}
+
+	// FOUND, CAPACITY. The observed high-water load -- see magHigh's note on
+	// why the ammo class's own MaxAmount is the wrong number.
+	static play bool, int MagazineOf(Weapon w)
+	{
+		let s = lookup(w);
+		if (!s || s.magHigh <= 0) return false, 0;
+		return true, s.magHigh;
+	}
+
+	// FOUND, AT-LEAST-N. A floor, never the real pellet count -- only
+	// reported once more than one hit has ever landed from a single shot,
+	// since "at least 1" is true of every weapon in the game and says
+	// nothing.
+	static play bool, int PelletsOf(Weapon w)
+	{
+		let s = lookup(w);
+		if (!s) return false, 0;
+		int best = s.pelletMax > s.pelletRun ? s.pelletMax : s.pelletRun;
+		if (best < 2) return false, 0;
+		return true, best;
+	}
+
+	// PER-CLASS HISTORY -- what guns of this KIND have done for you, as
+	// opposed to what this particular one has. The answer for a weapon lying
+	// on the floor, which by definition has no history of its own.
+	//
+	// FOUND, KILLS, SHOTS, HITS, TICS HELD.
+	static play bool, int, int, int, int ClassHistoryOf(Weapon w)
+	{
+		if (!w || cv("wr_stats_track", 1.0) <= 0.0) return false, 0, 0, 0, 0;
+
+		// Deliberately NOT w.Owner -- this is the reader that has to work for
+		// a weapon nobody owns. The console player's own ledger is the one
+		// being asked, about a class, so the weapon's ownership is irrelevant.
+		if (!playeringame[consoleplayer] || !players[consoleplayer].mo) return false, 0, 0, 0, 0;
+		let pawn = players[consoleplayer].mo;
+
+		let c = wr_StatLedger.ClassStatsFor(pawn, w.GetClassName(), false);
+		if (!c || c.shotsFired <= 0) return false, 0, 0, 0, 0;
+		return true, c.kills, c.shotsFired, c.hits, c.ticsHeld;
 	}
 
 	// FOUND, SHOTS PER SECOND. 35.0 is Doom's fixed tic rate.

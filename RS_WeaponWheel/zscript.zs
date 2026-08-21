@@ -57,6 +57,12 @@
 // the owned-item walk, and not one of its ACS scripts is ever called.
 #include "wr_compat_combinedarms.zs"
 
+// wr_stats.zs -- the universal stat resolver. Asks one question per stat
+// (damage, rate of fire, accuracy, pellets, magazine) of ANY weapon from any
+// mod, and takes the best answer available: the mod's own field, the
+// tracker's observation, a curse mask, or nothing. What used to be rsRows().
+#include "wr_stats.zs"
+
 // wr_stattracker.zs -- kills, shots fired, accuracy, headshots (if that mod
 // is loaded), and an observed damage/rate-of-fire estimate for weapons that
 // don't already expose a real one. Not a compat file -- nothing else
@@ -402,6 +408,29 @@ class wr_Rig : EventHandler
 	Array<int>    mStars;
 	Array<double> mStarX, mStarY;   // fixed offsets in the view plane, per star
 	Array<int>    mStarHue;
+
+	//==========================================================================
+	// INSPECT MODE -- the data card WITHOUT the ring.
+	//
+	// The sheet has only ever existed inside the wheel, which makes it
+	// useless for the thing it is best at: deciding whether the gun on the
+	// floor is better than the one in your hand. You cannot open the wheel
+	// AT a weapon in the world -- the wheel shows what you already own.
+	//
+	// So this is the same sheet, summoned by pointing at a weapon instead.
+	// The engine already tracks what each hand's laser is resting on, per
+	// hand, every frame (LaserTraceTargetMain/Off -- the same fields
+	// RS_Headshots reads to tint the beam), so no new trace is cast and no
+	// new engine work was needed.
+	//
+	// DWELL, NOT INSTANT. Sweeping an arm across a room full of pickups
+	// would otherwise flash a card at every one. wr_inspect_dwell tics of
+	// rest on the same weapon before it appears -- the same reasoning, and
+	// the same shape, as the fan's own dwell.
+	Weapon mInspectWpn;      // what is currently being inspected, if anything
+	Weapon mInspectCand;     // what the laser is resting on right now
+	int    mInspectTics;     // how long it has rested there
+	int    mInspectHand;     // which hand is pointing (0 main, 1 off)
 
 	// Tics since the current expansion opened. The fan itself needs no such
 	// counter -- AnimateBillboardGroup hands its whole easing job to the
@@ -1242,11 +1271,14 @@ class wr_Rig : EventHandler
 		// weapon-instance stat, not a colour-worthy rarity tier.
 		bool hasBD; int bdDmg, bdAcc, bdRof, bdRcl, bdClip, bdLvl;
 		[hasBD, bdDmg, bdAcc, bdRof, bdRcl, bdClip, bdLvl] = wr_CompatBorderDoom.StatsOf(w);
+		// Only the LEVEL row survives here. BorderDoom's damage, accuracy,
+		// rate of fire and clip size are now resolved by wr_stats.zs along
+		// with every other mod's, so printing them again would duplicate
+		// rows statRows() already draws. Recoil is dropped outright: it
+		// models a crosshair kick, which describes the game aiming for you,
+		// and in VR your hand is the aim.
 		if (hasBD)
-		{
-			sheetRow(String.Format("DMG %d  ACC %d  LVL %d", bdDmg, bdAcc, bdLvl), SHEET_MEAS);
-			sheetRow(String.Format("ROF %d  RECOIL %d  CLIP %d", bdRof, bdRcl, bdClip), SHEET_TEXT);
-		}
+			sheetRow(String.Format("BD LEVEL %d", bdLvl), SHEET_TEXT);
 
 		// Combined Arms -- see wr_compat_combinedarms.zs. Four classes with
 		// four different resource systems, so which of these rows answer at
@@ -1320,28 +1352,6 @@ class wr_Rig : EventHandler
 			sheetRow(String.Format("KILLS %d  SHOTS %d  ACC %d%%", trKills, trShots, acc), SHEET_TEXT);
 		}
 
-		// DAMAGE/RATE OF FIRE are an ESTIMATE, not a read, and only shown
-		// when nothing on the sheet already has the real number -- RS
-		// Weapon's own DPS/ROF (rsRows, below) and BorderDoom's cached
-		// stats (above) are both authoritative; this is a fallback for
-		// everything else, including genuinely vanilla weapons. Marked
-		// with "~" for the same reason a curse masks with "???" rather
-		// than a wrong number dressed as a real one.
-		if (!isRS && !hasBD)
-		{
-			bool hasDmg; double trDmg; int trDmgN;
-			[hasDmg, trDmg, trDmgN] = wr_StatTracker.DamageOf(w);
-			bool hasRof; double trRof;
-			[hasRof, trRof] = wr_StatTracker.RofOf(w);
-
-			if (hasDmg && hasRof)
-				sheetRow(String.Format("DMG ~%d/hit  ROF ~%.1f/s", int(trDmg), trRof), SHEET_MEAS);
-			else if (hasDmg)
-				sheetRow(String.Format("DMG ~%d/hit", int(trDmg)), SHEET_MEAS);
-			else if (hasRof)
-				sheetRow(String.Format("ROF ~%.1f/s", trRof), SHEET_MEAS);
-		}
-
 		// HEADSHOTS -- only when that mod is actually loaded (Object.FindClass
 		// check inside HeadshotsOf()), shown even at zero once it is, the
 		// same honesty rule every other conditional row on this sheet
@@ -1372,16 +1382,21 @@ class wr_Rig : EventHandler
 		if (hasHeld)
 			sheetRow("HELD " .. wr_StatTracker.HeldWord(trHeld), SHEET_DIM);
 
-		// THE BAR HAS TWO POSSIBLE OWNERS NOW, and only one of them can be
-		// right for a given weapon. rsRows() drives it from RS Weapon's
-		// Condition; the BlastMaster heat block above drives it from heat.
-		// They cannot both apply -- a BlastMaster is not holding an RS
-		// Weapon gun -- but the ELSE here used to hide the bar
-		// unconditionally for anything that was not an RS weapon, which
-		// would have wiped the heat gauge one line after it was set.
-		// caHeat is the guard: whoever claimed the bar keeps it.
-		if (isRS && cv("wr_sheet_stats", 1.0) > 0.0) rsRows(w);
-		else if (!caHeat)                           setSheetBar(0, SHEET_MEAS, false);
+		// THE STAT ROWS RUN FOR EVERY WEAPON NOW, not only RS Weapon's.
+		// statRows() resolves each stat against whatever can answer it --
+		// the mod's own field, the tracker's observation, or nothing -- so a
+		// vanilla shotgun gets the same rows as a rolled one, filled from a
+		// different place. wr_sheet_stats still switches the whole block off.
+		//
+		// THE BAR HAS TWO POSSIBLE OWNERS. statRows drives it from Condition
+		// (RS Weapon only); the Combined Arms block above drives it from
+		// BlastMaster heat. They cannot both apply to one weapon, but the
+		// hide-it call has to respect whoever claimed it -- caHeat is that
+		// guard, and statRows only ever claims it for a weapon that actually
+		// has a Condition.
+		bool wantStats = cv("wr_sheet_stats", 1.0) > 0.0;
+		if (!caHeat) setSheetBar(0, SHEET_MEAS, false);
+		if (wantStats) statRows(w);
 
 		blankRestOfSheet();
 	}
@@ -1399,114 +1414,121 @@ class wr_Rig : EventHandler
 	}
 
 	//==========================================================================
-	// THE RS ROWS, AND THE ONE RULE THEY EXIST TO OBEY.
+	// THE STAT ROWS, FOR EVERY WEAPON RATHER THAN FOR ONE MOD'S.
 	//
-	// A CURSED STAT SHOWS ??? AND NO NUMBER. Owner ruling 2026-08-07, quoted
-	// at RS_Screens.zs:272-281: "curses obscure the actual value of a rolled
-	// stat until they are lifted by spending gold". The rows there used to
-	// print the halved value with a [LOCKED] tag, "which gives the whole thing
-	// away -- you could see exactly what you were buying and simply never buy
-	// a bad one".
+	// This used to be rsRows(): seven rows that only RS Weapon could fill,
+	// while a weapon from any other mod -- or from none -- got almost
+	// nothing. Damage, rate of fire, accuracy, magazine and pellets are not
+	// RS Weapon's concepts; every weapon in every mod has them, and the only
+	// thing that differs is who can tell you the number. wr_stats.zs answers
+	// that per stat, so this draws the same rows for a vanilla shotgun and a
+	// rolled one and simply fills them from different places.
 	//
-	// AND NO BAR. :292-297 is explicit: a cursed stat passes -1 for its bar
-	// fraction "because a bar IS the number and drawing one would leak exactly
-	// what the curse hides". Nothing below draws a gauge for a masked row.
-	//
-	// AND DERIVED VALUES MASK WITH THEIR SOURCE. :287-288: "DPS is derived
-	// from damage, so it must hide too -- otherwise it leaks the exact number
-	// the curse is concealing." DPS is DamagePerShot x PelletCount x
-	// RateOfFire and the other two are never cursed, so an unmasked DPS is the
-	// cursed damage after two divisions.
-	//==========================================================================
-	private void rsRows(Weapon w)
+	// THE CURSE RULES STILL HOLD, and they now live in the resolver rather
+	// than here -- a masked stat comes back SRC_MASKED and prints ??? with
+	// no number and no bar, and DPS masks with damage because it is derived
+	// from it. See wr_stats.zs for the full reasoning; nothing about that
+	// promise changed, it just stopped being one mod's special case.
+	private void statRows(Weapon w)
 	{
-		// FAIL CLOSED. Every test here is positive -- a read that fails leaves
-		// its flag false, which would mean "not cursed" and print the number.
-		// So an unreadable flag is treated as CURSED: showing ??? when nothing
-		// is hidden is a cosmetic error, and showing a number that should be
-		// hidden is the one that cannot be taken back.
-		int li;
-		bool lockDmg = !level.GetFieldBool(w, "LockedDamage",     li) || li != 0;
-		bool lockAcc = !level.GetFieldBool(w, "LockedAccuracy",   li) || li != 0;
-		bool lockCrt = !level.GetFieldBool(w, "LockedCritChance", li) || li != 0;
-		bool lockCap = !level.GetFieldBool(w, "LockedCapacity",   li) || li != 0;
-
-		// CONDITION -- the row that answers "will it fail me", and the only
-		// stat here that is never cursed, so it is also the only one that may
-		// carry a gauge.
-		double cnd;
-		if (level.GetFieldFloat(w, "Condition", cnd))
+		// CONDITION first, and it is the only row here that may carry the
+		// gauge: a bar IS the number, so a stat that can be cursed could
+		// never have one without leaking what the curse hides. Condition is
+		// never cursed.
+		int csrc; double cnd;
+		[csrc, cnd] = wr_Stats.Condition(w);
+		if (csrc == wr_Stats.SRC_DECLARED)
 		{
 			int pct = int(cnd);
 			// BACKFIRE BELOW 20, and nothing else on the sheet says so.
-			// RS_Roll.zs:216-232 is unambiguous: the 20-29 band is pure upside
-			// with backfireChance 0, and the band below it is 0.20 rising to
-			// 0.35. That edge is the single most decision-relevant number on a
-			// worn weapon and it has no colour of its own, so it gets a word.
+			// RS_Roll.zs:216-232: the 20-29 band is pure upside with
+			// backfireChance 0, and the band below it runs 0.20 to 0.35.
+			// That edge is the most decision-relevant number on a worn
+			// weapon and it has no colour of its own, so it gets a word.
 			color ccol = (pct < 20) ? color(SHEET_LOCK)
 			           : (pct < 50) ? color(SHEET_HOT) : color(SHEET_MEAS);
 
-			if (pct < 20)
-				sheetRow(String.Format("COND %d%%  BACKFIRE", pct), ccol);
-			else
-				sheetRow(String.Format("CONDITION %d%%", pct), ccol);
+			if (pct < 20) sheetRow(String.Format("COND %d%%  BACKFIRE", pct), ccol);
+			else          sheetRow(String.Format("CONDITION %d%%", pct), ccol);
 
 			setSheetBar(pct, ccol, true);
 		}
-		else setSheetBar(0, SHEET_MEAS, false);
 
-		// DPS -- computed exactly as RS_Main computes it (RS_Screens.zs:271),
-		// so the two surfaces can never disagree about the same weapon.
-		int dmg, pel, rof;
-		bool haveD = level.GetFieldInt(w, "DamagePerShot", dmg);
-		bool haveP = level.GetFieldInt(w, "PelletCount",   pel);
-		bool haveR = level.GetFieldInt(w, "RateOfFire",    rof);
-
-		if (lockDmg)
+		// DPS, masked with damage rather than independently -- see
+		// wr_Stats.Dps.
+		int dpsSrc, dpsLo, dpsHi;
+		[dpsSrc, dpsLo, dpsHi] = wr_Stats.Dps(w);
+		if (dpsSrc == wr_Stats.SRC_MASKED)
 			sheetRow("DPS  ???", SHEET_LOCK);
-		else if (haveD && haveP && haveR)
-			sheetRow(String.Format("DPS %d", dmg * max(1, pel) * max(1, rof)), SHEET_HOT);
+		else if (dpsSrc != wr_Stats.SRC_UNKNOWN)
+			sheetRow("DPS " .. wr_Stats.Span(dpsLo, dpsHi), SHEET_HOT);
 
-		double acc;
-		if (lockAcc)                                     sheetRow("ACCURACY  ???", SHEET_LOCK);
-		else if (level.GetFieldFloat(w, "Accuracy", acc)) sheetRow(String.Format("ACCURACY %d", int(acc)), SHEET_MEAS);
+		// DAMAGE as a range -- most weapons roll it, so one figure would be
+		// a number the gun cannot actually deal.
+		int dSrc, dLo, dHi;
+		[dSrc, dLo, dHi] = wr_Stats.Damage(w);
+		if (dSrc == wr_Stats.SRC_MASKED)
+			sheetRow("DAMAGE  ???", SHEET_LOCK);
+		else if (dSrc != wr_Stats.SRC_UNKNOWN)
+			sheetRow("DAMAGE " .. wr_Stats.Span(dLo, dHi), SHEET_MEAS);
 
-		double crit;
-		if (lockCrt)                                        sheetRow("CRIT  ???", SHEET_LOCK);
-		else if (level.GetFieldFloat(w, "CritChance", crit)) sheetRow(String.Format("CRIT %.1f%%", crit * 100.0), SHEET_MEAS);
+		// ACCURACY. The declared and observed versions measure genuinely
+		// different things -- a gun's spread versus your hit rate with it --
+		// so they are worded differently rather than sharing a label that
+		// would imply they are the same number from different sources.
+		int aSrc; double acc;
+		[aSrc, acc] = wr_Stats.Accuracy(w);
+		if (aSrc == wr_Stats.SRC_MASKED)
+			sheetRow("ACCURACY  ???", SHEET_LOCK);
+		else if (aSrc == wr_Stats.SRC_DECLARED)
+			sheetRow(String.Format("ACCURACY %d", int(acc)), SHEET_MEAS);
+		else if (aSrc == wr_Stats.SRC_OBSERVED)
+			sheetRow(String.Format("HIT RATE %d%%", int(acc)), SHEET_MEAS);
 
-		// MAGAZINE. The loaded count is honest either way -- only CAPACITY is
-		// cursed (RS_Screens.zs:320) -- so this is the one row that prints a
-		// real number beside a mask rather than replacing the whole value.
-		//
-		// This is also the RIGHT denominator, which the engine-only path
-		// cannot get: Capacity is the rolled magazine size, where
-		// Ammo2.MaxAmount is the ammo class's default with deliberate
-		// headroom over it.
-		int cap;
-		if (hasMagazine(w))
+		// RATE OF FIRE and PELLETS share a row -- neither can ever be
+		// cursed, so neither needs a mask of its own, which is the only
+		// thing that would force them onto separate coloured rows.
+		int rSrc; double rps;
+		[rSrc, rps] = wr_Stats.Rof(w);
+		int pSrc, pel;
+		[pSrc, pel] = wr_Stats.Pellets(w);
+
+		if (rSrc != wr_Stats.SRC_UNKNOWN)
 		{
-			if (lockCap)
-				sheetRow(String.Format("MAG %d / ???", ammoLoaded(w)), SHEET_LOCK);
-			else if (level.GetFieldInt(w, "Capacity", cap) && cap > 0)
-				sheetRow(String.Format("MAG %d / %d", ammoLoaded(w), cap), SHEET_TEXT);
+			string rofTxt = String.Format("ROF %.1f/s", rps);
+			// An observed pellet count is a FLOOR -- only the pellets that
+			// connected were ever counted -- so it prints with a "+" rather
+			// than as a flat claim about the weapon's spread.
+			if (pSrc != wr_Stats.SRC_UNKNOWN && pel > 1)
+				sheetRow(rofTxt .. String.Format("   PELLETS %d%s", pel,
+				         wr_Stats.FloorMark(pSrc)), SHEET_TEXT);
+			else
+				sheetRow(rofTxt, SHEET_TEXT);
 		}
 
-		bool lockVel = !level.GetFieldBool(w, "LockedVelocity", li) || li != 0;
-		double vel;
-		if (lockVel)                                       sheetRow("VELOCITY  ???", SHEET_LOCK);
-		else if (level.GetFieldFloat(w, "Velocity", vel))  sheetRow(String.Format("VELOCITY %d", int(vel)), SHEET_MEAS);
+		// MAGAZINE. The loaded count is honest either way -- only CAPACITY
+		// can be cursed -- so this is the one row that prints a real number
+		// beside a mask rather than replacing the whole value.
+		int mSrc, cap;
+		[mSrc, cap] = wr_Stats.Magazine(w);
+		if (mSrc == wr_Stats.SRC_MASKED)
+			sheetRow(String.Format("MAG %d / ???", ammoLoaded(w)), SHEET_LOCK);
+		else if (mSrc != wr_Stats.SRC_UNKNOWN)
+			sheetRow(String.Format("MAG %d / %d", ammoLoaded(w), cap), SHEET_TEXT);
 
-		// RATE and PELLETS share a row. Both are stated as never cursed --
-		// RS_Screens.zs:299 says so of rate of fire outright, and pellets is
-		// promotion's reward rather than a rolled stat (:325-326) -- so
-		// neither can ever need a mask of its own, which is the only thing
-		// that would force them apart onto separate coloured rows.
-		if (haveR && rof > 0)
-		{
-			if (haveP && pel > 1) sheetRow(String.Format("ROF %d/s   PELLETS %d", rof, pel), SHEET_TEXT);
-			else                  sheetRow(String.Format("ROF %d/s", rof), SHEET_TEXT);
-		}
+		int vSrc; double vel;
+		[vSrc, vel] = wr_Stats.Velocity(w);
+		if (vSrc == wr_Stats.SRC_MASKED)
+			sheetRow("VELOCITY  ???", SHEET_LOCK);
+		else if (vSrc != wr_Stats.SRC_UNKNOWN)
+			sheetRow(String.Format("VELOCITY %d", int(vel)), SHEET_MEAS);
+
+		int crSrc; double crit;
+		[crSrc, crit] = wr_Stats.Crit(w);
+		if (crSrc == wr_Stats.SRC_MASKED)
+			sheetRow("CRIT  ???", SHEET_LOCK);
+		else if (crSrc != wr_Stats.SRC_UNKNOWN)
+			sheetRow(String.Format("CRIT %.1f%%", crit), SHEET_MEAS);
 	}
 
 	// The tier ladder, in RS_Roll.zs's own declaration order (:12-22). Read as
@@ -5316,6 +5338,236 @@ class wr_Rig : EventHandler
 	// absent. The engine's own wheel hits this and synthesises a hand in front
 	// of the camera instead; this does the same, so the rig is usable with no
 	// tracked hands at all.
+	//==========================================================================
+	// INSPECT MODE'S OWN TICK. Runs whether or not the ring is open, which is
+	// the whole point -- see the mInspect* fields for why the sheet needed to
+	// escape the wheel at all.
+	private void tickInspect()
+	{
+		// THE RING WINS. Its own sheet is already showing what the selector
+		// is on, and two sheets would be two answers to one question.
+		if (mOpen || cv("wr_inspect", 1.0) <= 0.0)
+		{
+			endInspect();
+			return;
+		}
+
+		if (!playeringame[consoleplayer] || players[consoleplayer].mo == null
+		    || players[consoleplayer].playerstate != PST_LIVE)
+		{
+			endInspect();
+			return;
+		}
+
+		let pmo = players[consoleplayer].mo;
+
+		// Both hands are asked, and the MAIN hand wins a tie. Nothing here
+		// casts a trace -- the engine refreshes these every render frame for
+		// the laser sight, so this is a read of work already done.
+		Weapon found = null;
+		int hand = 0;
+
+		let tm = Weapon(pmo.LaserTraceTargetMain);
+		let to = Weapon(pmo.LaserTraceTargetOff);
+		if (tm != null)      { found = tm; hand = 0; }
+		else if (to != null) { found = to; hand = 1; }
+
+		// A weapon already in somebody's inventory is not a thing in the
+		// world to consider -- that includes the two in your own hands, which
+		// a laser can easily rest on.
+		if (found != null && found.Owner != null) found = null;
+
+		if (found == null)
+		{
+			// GRACE, not an instant cut. A laser resting on a pickup wobbles
+			// off it constantly; without this the card strobes.
+			if (mInspectTics > 0) --mInspectTics;
+			if (mInspectTics <= 0) endInspect();
+			return;
+		}
+
+		// A different weapon restarts the dwell rather than inheriting the
+		// last one's progress.
+		if (found != mInspectCand)
+		{
+			mInspectCand = found;
+			mInspectTics = 0;
+		}
+
+		mInspectHand = hand;
+		++mInspectTics;
+
+		int want = int(cv("wr_inspect_dwell", 18.0));
+		if (mInspectTics < want) return;
+
+		// Past the dwell: build once, then only re-fill when the target
+		// changes. buildSheetRows is not cheap enough to run every tic for a
+		// card that is not moving between weapons.
+		if (mInspectWpn != found)
+		{
+			if (mSheetPlate == 0) buildSheet();
+			mInspectWpn = found;
+			mSheetShown = null;          // force buildSheetRows to redraw
+			buildSheetRows(found);
+			inspectRows(found);
+			blankRestOfSheet();
+		}
+
+		layoutInspect(pmo);
+	}
+
+	//==========================================================================
+	// THE DELTA ROWS -- the reason inspect mode exists.
+	//
+	// A card that says "DPS 340" about a gun on the floor is not an answer.
+	// The question is always "compared to what I am holding", and until now
+	// the player has had to do that subtraction in their head across two
+	// screens they could never see at once.
+	//
+	// COMPARED AGAINST THE POINTING HAND'S OWN WEAPON, not against some
+	// notional best. You point at the floor with one hand; the gun that hand
+	// would be giving up is the one it is currently holding. That is the
+	// trade actually on offer.
+	//
+	// ONLY WHERE BOTH SIDES CAN ANSWER. A delta needs two numbers, and half
+	// a comparison is worse than none -- it reads as a change when it is
+	// really a missing measurement. wr_stats.zs returning UNKNOWN on either
+	// side means the row is skipped entirely rather than shown as zero.
+	//
+	// AND NEVER ACROSS A MASK. If either weapon's stat is cursed, the delta
+	// is not drawn: subtracting a known number from a hidden one and showing
+	// the result hands back exactly the value the curse exists to hide.
+	private void inspectRows(Weapon found)
+	{
+		if (cv("wr_inspect_delta", 1.0) <= 0.0) return;
+
+		let pmo = players[consoleplayer].mo;
+		if (!pmo || !pmo.player) return;
+
+		Weapon mine = (mInspectHand == 1) ? pmo.player.OffhandWeapon
+		                                  : pmo.player.ReadyWeapon;
+		if (!mine || mine == found) return;
+
+		sheetRow("--- VS HELD ---", SHEET_DIM);
+
+		deltaRow(found, mine, "DPS", 0);
+		deltaRow(found, mine, "DMG", 1);
+		deltaRow(found, mine, "ROF", 2);
+		deltaRow(found, mine, "MAG", 3);
+
+		// PER-CLASS HISTORY, and it only appears here. A weapon on the floor
+		// has no history of its own -- you have never held THAT one -- but
+		// you may well have carried others of its kind, and "your plasma
+		// rifles: 44% over two hours" answers "what will this be like for me"
+		// better than any declared stat can.
+		bool hasHist; int hKills, hShots, hHits, hTics;
+		[hasHist, hKills, hShots, hHits, hTics] = wr_StatTracker.ClassHistoryOf(found);
+		if (hasHist)
+		{
+			int hAcc = hShots > 0 ? (hHits * 100 / hShots) : 0;
+			sheetRow(String.Format("YOURS: %d KILLS  %d%%  %s",
+			                       hKills, hAcc, wr_StatTracker.HeldWord(hTics)), SHEET_TEXT);
+		}
+		else
+			sheetRow("NEVER HELD ONE", SHEET_DIM);
+	}
+
+	// One stat, both weapons, as a signed difference. `which` selects the
+	// stat rather than passing a function pointer, which ZScript has no
+	// clean form for here.
+	//
+	// A RANGE COMPARES BY ITS MIDPOINT. Damage and DPS come back as low-high
+	// spans, and two spans have no single difference -- but the midpoint is
+	// what a player means by "hits harder", and showing the full four-number
+	// comparison would cost two rows to say one thing.
+	private void deltaRow(Weapon a, Weapon b, string label, int which)
+	{
+		int sa, sb;
+		double va, vb;
+
+		if (which == 0)
+		{
+			int alo, ahi, blo, bhi;
+			[sa, alo, ahi] = wr_Stats.Dps(a);
+			[sb, blo, bhi] = wr_Stats.Dps(b);
+			va = double(alo + ahi) * 0.5;
+			vb = double(blo + bhi) * 0.5;
+		}
+		else if (which == 1)
+		{
+			int alo, ahi, blo, bhi;
+			[sa, alo, ahi] = wr_Stats.Damage(a);
+			[sb, blo, bhi] = wr_Stats.Damage(b);
+			va = double(alo + ahi) * 0.5;
+			vb = double(blo + bhi) * 0.5;
+		}
+		else if (which == 2)
+		{
+			[sa, va] = wr_Stats.Rof(a);
+			[sb, vb] = wr_Stats.Rof(b);
+		}
+		else
+		{
+			int ai, bi;
+			[sa, ai] = wr_Stats.Magazine(a);
+			[sb, bi] = wr_Stats.Magazine(b);
+			va = double(ai); vb = double(bi);
+		}
+
+		// Both sides must be real, and neither may be masked -- see the
+		// block comment above on why a delta across a curse leaks it.
+		if (sa == wr_Stats.SRC_UNKNOWN || sb == wr_Stats.SRC_UNKNOWN) return;
+		if (sa == wr_Stats.SRC_MASKED  || sb == wr_Stats.SRC_MASKED)
+		{
+			sheetRow(label .. "  ???", SHEET_LOCK);
+			return;
+		}
+
+		double d = va - vb;
+		if (d > -0.05 && d < 0.05)
+		{
+			sheetRow(label .. "  SAME", SHEET_DIM);
+			return;
+		}
+
+		// Colour carries the verdict so the sign does not have to be read --
+		// green up, red down, the one place on this sheet where a colour
+		// means better-or-worse rather than category.
+		color dc = (d > 0.0) ? color(COLOR_DELTA_UP) : color(COLOR_DELTA_DOWN);
+		sheetRow(String.Format("%s  %s%.1f", label, d > 0.0 ? "+" : "", d), dc);
+	}
+
+	// Tear the inspect sheet down, but ONLY if inspect is what built it --
+	// the ring's own sheet uses the same billboards and must not be freed out
+	// from under it.
+	private void endInspect()
+	{
+		mInspectCand = null;
+		mInspectTics = 0;
+		if (mInspectWpn == null) return;
+
+		mInspectWpn = null;
+		if (!mOpen) clearSheet();
+	}
+
+	// The inspect sheet rides the pointing hand, at the same tilt and facing
+	// the ring's own sheet uses. Positioned every tic so it tracks the hand
+	// rather than hanging where the pickup happened to be first seen.
+	private void layoutInspect(PlayerPawn pmo)
+	{
+		if (mSheetPlate == 0) return;
+
+		double viewYaw = pmo.angle;
+		Vector3 viewRight = (cos(viewYaw - 90), sin(viewYaw - 90), 0);
+		Vector3 wrist = handPos(pmo, mInspectHand);
+
+		double panelW = panelWNow();
+		double panelH = panelHNow();
+
+		layoutSheet(wrist, viewYaw, viewRight, PANEL_TILT,
+		            cv("wr_rise", 2.0), 0.0, panelW, panelH, 0.0);
+	}
+
 	private static Vector3 handPos(PlayerPawn pmo, int hand)
 	{
 		if (pmo.OverrideAttackPosDir)
@@ -5441,6 +5693,8 @@ class wr_Rig : EventHandler
 				level.RollBillboard(mSubIds[mSubFlipCard], flipRoll);
 		}
 		if (mClosingTics > 0 && --mClosingTics <= 0) destroyPanels();
+
+		tickInspect();
 
 		if (!mOpen) return;
 
@@ -6896,6 +7150,13 @@ class wr_Rig : EventHandler
 	const SHEET_ACCENT = 0x7F77DD;
 	const SHEET_TEXT   = 0xE8EAF0;
 	const SHEET_DIM    = 0x8D93A3;
+
+	// THE ONLY TWO COLOURS ON THIS SHEET THAT MEAN BETTER OR WORSE. Every
+	// other colour here is a category -- masked, measured, hot, dim. These
+	// two are a verdict, and they exist so a delta can be read without
+	// parsing the sign in front of the number.
+	const COLOR_DELTA_UP   = 0x66DD66;
+	const COLOR_DELTA_DOWN = 0xDD5555;
 	const SHEET_HOT    = 0xEF9F27;
 	const SHEET_COOL   = 0x4FA3D1;
 	const SHEET_MEAS   = 0x5DCAA5;
