@@ -5587,67 +5587,56 @@ class wr_Rig : EventHandler
 		[tb, wb] = tierWordOf(mine);
 		if (ta && tb) cmpRow("TIER", wa, wb, 0);
 
-		// THE THREE ROWS THAT ACTUALLY DECIDE A PICKUP.
-		//
-		// These used to be the weapon's own kills, hit rate and time held,
-		// which was worthless here by construction: a weapon lying on the
-		// floor has never been carried, so all three are zero every single
-		// time, on every weapon, forever. Three rows of guaranteed nothing.
-		//
-		// What a player deciding whether to grab something actually needs,
-		// and cannot get from the stat rows above, is: can I feed it, do I
-		// already have one, and does it cost me a hand. All three are
-		// generic -- no mod field, no history, true the instant the weapon
-		// spawns.
-
-		// ROUNDS IN RESERVE, for each weapon's own ammo type. The stat rows
-		// say which is the better gun; this says which one you can actually
-		// fire. A weapon whose ammo you have none of is not an upgrade, and
-		// nothing else on this card would tell you that.
-		//
-		// AmmoType1 is a CLASS property, readable off a weapon nobody owns
-		// -- unlike Ammo1, which is the live instance and is null until
-		// pickup. That is exactly why this works for a thing on the floor.
-		int aHave = ammoHeldFor(pmo, found);
-		int bHave = ammoHeldFor(pmo, mine);
-		if (aHave >= 0 || bHave >= 0)
-			cmpRow("YOU CARRY",
-			       aHave >= 0 ? String.Format("%d", aHave) : "--",
-			       bHave >= 0 ? String.Format("%d", bHave) : "--",
-			       (aHave < 0 || bHave < 0) ? 0
-			         : (aHave > 0 && bHave <= 0) ? 1
-			         : (bHave > 0 && aHave <= 0) ? -1 : 0);
-
-		// DO YOU ALREADY HAVE ONE. In a randomiser this is the difference
-		// between an upgrade and a duplicate roll of a gun already in your
-		// pack, and the stat rows cannot say which -- they describe the
-		// weapon, not your inventory.
-		bool ownAlready = pmo.FindInventory(found.GetClass()) != null;
-		cmpRow("ALREADY OWN", ownAlready ? "YES" : "NO", "HELD", 0);
-
-		// WHAT IT COSTS YOU IN HANDS, which matters here in a way it does
-		// not in a flat game: a two-handed weapon takes the other hand out
-		// of play, so it is not competing on damage alone -- it is competing
-		// against whatever that hand was doing.
+		// WHAT IT COSTS YOU IN HANDS. A two-handed weapon takes the other
+		// hand out of play, so it is not competing on damage alone -- it is
+		// competing against whatever that hand was doing.
 		cmpRow("HANDS", handsWord(found), handsWord(mine), 0);
 
-		blankRestOfCompare();
-	}
+		// EVERY MOD-SPECIFIC ROW EITHER WEAPON HAS, from the exact same
+		// reader functions the ordinary sheet already trusts.
+		//
+		// The condensed version of this ("UPGRADES: 3" as a bare count) was
+		// wrong, and not for a subtle reason: eleven compat files exist
+		// specifically to surface what a weapon actually carries -- augment
+		// types, rolled effects, which Mod Station slots are filled, a
+		// player's own rolled stats -- and collapsing all of that into one
+		// number was throwing the entire point of those files away for the
+		// one card where showing it matters most.
+		//
+		// MERGED BY LABEL, NOT FORCED INTO A SHARED SCHEMA. Two weapons from
+		// the SAME mod share a label ("AUG" vs "AUG") and sit in one row
+		// side by side. Two weapons from DIFFERENT mods do not pretend to
+		// share a concept -- Insurrection's augments and DRLA's mods are not
+		// the same axis -- so each gets its own row with the other column
+		// left at "--", which shows everything either weapon offers without
+		// inventing a comparison that is not real.
+		Array<string> la, va, lb, vb;
+		modRowsOf(found, la, va);
+		modRowsOf(mine,  lb, vb);
 
-	// How many rounds the player is carrying of a weapon's OWN ammo type.
-	// -1 for a weapon that uses no ammo at all, which prints as "--" rather
-	// than as a misleading zero: a fist is not out of ammo.
-	private static int ammoHeldFor(PlayerPawn pmo, Weapon w)
-	{
-		if (!pmo || !w) return -1;
+		Array<bool> usedB;
+		for (int i = 0; i < lb.Size(); ++i) usedB.Push(false);
 
-		// The CLASS property, not the live Ammo1 instance -- Ammo1 is null
-		// on anything nobody owns, which is every weapon this card is for.
-		class<Ammo> at = w.AmmoType1;
-		if (at == null) return -1;
+		for (int i = 0; i < la.Size(); ++i)
+		{
+			int match = -1;
+			for (int j = 0; j < lb.Size(); ++j)
+			{
+				if (!usedB[j] && lb[j] == la[i]) { match = j; break; }
+			}
+			if (match >= 0)
+			{
+				usedB[match] = true;
+				cmpRow(la[i], va[i], vb[match], 0);
+			}
+			else cmpRow(la[i], va[i], "--", 0);
+		}
+		for (int j = 0; j < lb.Size(); ++j)
+		{
+			if (!usedB[j]) cmpRow(lb[j], "--", vb[j], 0);
+		}
 
-		let it = pmo.FindInventory(at);
-		return it ? it.Amount : 0;
+				blankRestOfCompare();
 	}
 
 	// Melee / two-handed / off-hand-only, in the same words the ring's own
@@ -5660,6 +5649,177 @@ class wr_Rig : EventHandler
 		if (w.bTwoHanded)   return "TWO";
 		if (w.bOffhandWeapon) return "OFF";
 		return "ONE";
+	}
+
+	// EVERY SUPPLEMENTARY ROW A SINGLE WEAPON COULD PRODUCE, from every
+	// compat file in this mod -- the exact same calls buildSheetRows() makes
+	// for the sheet, run here for one weapon in isolation so fillCompare()
+	// can run it twice and merge the results.
+	//
+	// Only what is not ALREADY covered by wr_stats.zs is included. BorderDoom's
+	// damage/accuracy/rate-of-fire/clip and Pandemonia's magazine are all
+	// resolved sources for the universal DAMAGE/ROF/MAG rows already drawn
+	// above this block -- repeating them here would be the same number
+	// twice under two different labels.
+	private static void modRowsOf(Weapon w, out Array<string> labels, out Array<string> values)
+	{
+		labels.Clear();
+		values.Clear();
+		if (!w) return;
+
+		// LegenDoom
+		string ldE = wr_CompatLegenDoom.EffectsOf(w);
+		if (ldE.Length() > 0) { labels.Push("EFFECT"); values.Push(ldE); }
+
+		// DRLA
+		int drlaM1, drlaM2;
+		[drlaM1, drlaM2] = wr_CompatDRLA.ModsOf(w);
+		if (drlaM1 != 0 || drlaM2 != 0)
+		{
+			labels.Push("MOD");
+			values.Push(wr_CompatDRLA.ModsWord(drlaM1, drlaM2));
+		}
+
+		// Pandemonia Insurrection
+		bool insHas; int insCur, insMax;
+		[insHas, insCur, insMax] = wr_CompatPandemoniaInsurrection.CountOf(w);
+		if (insHas && insCur > 0)
+		{
+			string b = wr_CompatPandemoniaInsurrection.BreakdownOf(w);
+			labels.Push("AUG");
+			values.Push(b.Length() ? String.Format("%d/%d %s", insCur, insMax, b)
+			                       : String.Format("%d/%d", insCur, insMax));
+		}
+
+		bool insColHas; string insCol;
+		[insColHas, insCol] = wr_CompatPandemoniaInsurrection.ColorTagOf(w);
+		if (insColHas) { labels.Push("TAG"); values.Push(insCol); }
+
+		bool insDHas; int insDCur, insDMax; bool insDBroken;
+		[insDHas, insDCur, insDMax, insDBroken] = wr_CompatPandemoniaInsurrection.DurabilityOf(w);
+		if (insDHas)
+		{
+			labels.Push("DURA");
+			values.Push(insDBroken ? "BROKEN" : String.Format("%d/%d", insDCur, insDMax));
+		}
+
+		bool insSHas; string insSup;
+		[insSHas, insSup] = wr_CompatPandemoniaInsurrection.SuperiorOf(w);
+		if (insSHas) { labels.Push("SUPERIOR"); values.Push(insSup); }
+
+		bool insCHas; int insCCur, insCMax;
+		[insCHas, insCCur, insCMax] = wr_CompatPandemoniaInsurrection.ComboOf(w);
+		if (insCHas) { labels.Push("COMBO"); values.Push(String.Format("%d/%d", insCCur, insCMax)); }
+
+		bool insAHas; int insALvl, insACharge;
+		[insAHas, insALvl, insACharge] = wr_CompatPandemoniaInsurrection.AeonstaveOf(w);
+		if (insAHas)
+		{
+			labels.Push("AEON");
+			values.Push(String.Format("LVL %d %d/%d", insALvl, insACharge,
+			            wr_CompatPandemoniaInsurrection.AEON_CHARGE_MAX));
+		}
+
+		// Pandemonia base
+		bool pdHas; int pdCur, pdMax; bool pdBroken;
+		[pdHas, pdCur, pdMax, pdBroken] = wr_CompatPandemonia.DurabilityOf(w);
+		if (pdHas)
+		{
+			labels.Push("DURA");
+			values.Push(pdBroken ? "BROKEN" : String.Format("%d/%d", pdCur, pdMax));
+		}
+
+		bool psHas, ps1, ps2; string psLabel;
+		[psHas, ps1, ps2, psLabel] = wr_CompatPandemonia.SidegradesOf(w);
+		if (psHas)
+		{
+			labels.Push("SIDEGRADE");
+			values.Push(psLabel.Length() ? psLabel
+			            : String.Format("%d/2", (ps1 ? 1 : 0) + (ps2 ? 1 : 0)));
+		}
+
+		bool glHas; int glLvl;
+		[glHas, glLvl] = wr_CompatPandemonia.GameLevelOf(w);
+		if (glHas) { labels.Push("GAME LVL"); values.Push(String.Format("%d", glLvl)); }
+
+		// Pandemonia Anarchy
+		bool sigHas; int sigLvl, sigPts, sigMax; bool sigCd;
+		[sigHas, sigLvl, sigPts, sigMax, sigCd] = wr_CompatPandemoniaAnarchy.SigilOf(w);
+		if (sigHas)
+		{
+			labels.Push("SIGIL");
+			values.Push(String.Format("LVL %d  %d/%d", sigLvl, sigPts, sigMax));
+		}
+
+		// Guncaster
+		bool gcHas; double gcCd;
+		[gcHas, gcCd] = wr_CompatGuncaster.SpellCooldownOf(w);
+		if (gcHas) { labels.Push("SPELL CD"); values.Push(String.Format("%.1fs", gcCd)); }
+
+		string gcRes = wr_CompatGuncaster.ResourcesOf(w);
+		if (gcRes.Length() > 0) { labels.Push("RESOURCES"); values.Push(gcRes); }
+
+		// MetaDoom
+		bool mhHas; int mHeat, mShots;
+		[mhHas, mHeat, mShots] = wr_CompatMetaDoom.HeatOf(w);
+		if (mhHas) { labels.Push("HEAT"); values.Push(String.Format("%d/5", mHeat)); }
+
+		bool mkHas; int mKeys;
+		[mkHas, mKeys] = wr_CompatMetaDoom.KeysOf(w);
+		if (mkHas) { labels.Push("KEYS"); values.Push(String.Format("%d/3", mKeys)); }
+
+		// Doomablo (player-side, but attached to the weapon's owner and worth
+		// showing here the same way the sheet shows it regardless of rarity)
+		bool dlHas; int dLvl; double dXp, dXpNext; int dPts;
+		[dlHas, dLvl, dXp, dXpNext, dPts] = wr_CompatDoomablo.LevelOf(w);
+		if (dlHas) { labels.Push("LVL"); values.Push(String.Format("%d", dLvl)); }
+
+		bool diHas; int dInferno;
+		[diHas, dInferno] = wr_CompatDoomablo.InfernoLevelOf(w);
+		if (diHas) { labels.Push("INFERNO"); values.Push(String.Format("%d", dInferno)); }
+
+		bool dsHas; int dVit, dCrc, dCrd, dStr, dRf;
+		[dsHas, dVit, dCrc, dCrd, dStr, dRf] = wr_CompatDoomablo.StatsOf(w);
+		if (dsHas)
+		{
+			labels.Push("STATS");
+			values.Push(String.Format("VIT%d STR%d CRT%d%%", dVit, dStr, dCrc));
+		}
+
+		// BorderDoom -- only LEVEL, since damage/accuracy/rof/clip are
+		// already the universal rows' declared source.
+		bool bdHas; int bdDmg, bdAcc, bdRof, bdRcl, bdClip, bdLvl;
+		[bdHas, bdDmg, bdAcc, bdRof, bdRcl, bdClip, bdLvl] = wr_CompatBorderDoom.StatsOf(w);
+		if (bdHas) { labels.Push("BD LVL"); values.Push(String.Format("%d", bdLvl)); }
+
+		// Combined Arms
+		bool caHHas; int caH, caHMax, caOver;
+		[caHHas, caH, caHMax, caOver] = wr_CompatCombinedArms.HeatOf(w);
+		if (caHHas)
+		{
+			labels.Push("HEAT");
+			values.Push(caOver > 0 ? "OVERHEAT" : String.Format("%d/%d", caH, caHMax));
+		}
+
+		bool caRHas; string caRRow;
+		[caRHas, caRRow] = wr_CompatCombinedArms.ResourceRow(w);
+		if (caRHas) { labels.Push("RESOURCE"); values.Push(caRRow); }
+
+		bool caCHas; string caCRow;
+		[caCHas, caCRow] = wr_CompatCombinedArms.CooldownRow(w);
+		if (caCHas) { labels.Push("COOLDOWN"); values.Push(caCRow); }
+
+		bool caUHas; string caURow;
+		[caUHas, caURow] = wr_CompatCombinedArms.UpgradeRow(w);
+		if (caUHas) { labels.Push("UPGRADE"); values.Push(caURow); }
+
+		bool caEHas; string caERow;
+		[caEHas, caERow] = wr_CompatCombinedArms.ExpiryRow(w);
+		if (caEHas) { labels.Push("EXPIRES"); values.Push(caERow); }
+
+		bool caHiHas; string caHiRow;
+		[caHiHas, caHiRow] = wr_CompatCombinedArms.HiddenRow(w);
+		if (caHiHas) { labels.Push("HIDDEN"); values.Push(caHiRow); }
 	}
 
 	// One resolved stat, both weapons, side by side.
@@ -7420,10 +7580,18 @@ class wr_Rig : EventHandler
 	// with three columns and a fixed number of rows, so it needs width far
 	// more than it needs height.
 	const CMP_W_CARDS   = 4.2;
-	const CMP_H_CARDS   = 3.0;
-	const CMP_ROW_FRAC  = 0.058;
+	// Grown from 3.0/0.058/1.30 -- pulling every mod's own supplementary
+	// rows for BOTH weapons, merged, can run well past what the original
+	// ten-row table held. ROW_FRAC shrank in the same move so an EXISTING
+	// row's absolute size on screen is unchanged (h * ROW_FRAC is the same
+	// number as before, h just grew to make room for more of them) -- this
+	// is a taller table fitting more of the same-size rows, not the same
+	// table with smaller text crammed in. Same technique the data sheet's
+	// own 9-to-12 row growth used.
+	const CMP_H_CARDS   = 6.5;
+	const CMP_ROW_FRAC  = 0.027;
 	const CMP_ROWS_TOP  = 0.26;
-	const CMP_ROW_PITCH = 1.30;
+	const CMP_ROW_PITCH = 1.15;
 
 	// Column centres, as fractions of the card's own width from its middle.
 	// The label column is wide and sits left of centre; the two value
@@ -7434,11 +7602,13 @@ class wr_Rig : EventHandler
 	const CMP_COL_B     = 0.34;
 	const CMP_COL_W     = 0.26;
 
-	// Eight rows: five resolved stats, ammo, tier, and the three history
-	// lines -- which is more than eight, so the history rows are what get
-	// dropped first on a weapon that fills every stat row. That is the right
-	// order: a stat is about the trade, history is about you.
-	const CMP_ROW_POOL  = 10;
+	// Sized for the worst real case: DPS, damage, rate of fire, magazine,
+	// pellets, ammo, tier and hands (8, always present) plus up to roughly a
+	// dozen merged per-mod rows for two heavily-modded weapons from
+	// different mods, where nothing merges and every row doubles up. Rows
+	// past this pool are silently dropped, same as the sheet's own pool --
+	// not an error, just a card that has genuinely run out of plate.
+	const CMP_ROW_POOL  = 26;
 
 	// How many row billboards the sheet allocates, once, up front.
 	//
