@@ -57,6 +57,13 @@
 // the owned-item walk, and not one of its ACS scripts is ever called.
 #include "wr_compat_combinedarms.zs"
 
+// wr_compat_doominfinite.zs -- reading DOOM Infinite's procedural weapon
+// generator: rolled damage/rate/spread/pellets/crit, exotic ammo, fire
+// modes, alt modules, quirks, overheat and the run's own progression. The
+// flagship compat target -- real ZScript, and the only mod here whose rolls
+// are fully populated on a weapon still lying on the floor.
+#include "wr_compat_doominfinite.zs"
+
 // wr_stats.zs -- the universal stat resolver. Asks one question per stat
 // (damage, rate of fire, accuracy, pellets, magazine) of ANY weapon from any
 // mod, and takes the best answer available: the mod's own field, the
@@ -1063,6 +1070,14 @@ class wr_Rig : EventHandler
 		bool isDBL; int dblRarity;
 		[isDBL, dblRarity] = wr_CompatDoomablo.RarityOf(w);
 
+		// DOOM Infinite's flavour quirk, the fifth and last mod that gets to
+		// name the title row. Not a numeric ladder like the four above -- see
+		// wr_compat_doominfinite.zs on why the quirk NAME is the only
+		// reachable quality axis -- but it is a real earned property of the
+		// weapon and reads exactly like a rarity to a player.
+		bool isDI; color diCol; string diWord;
+		[isDI, diCol, diWord] = wr_CompatDoomInfinite.FlavorOf(w);
+
 		// HANDLING RIDES THE TOP ROW rather than taking one of its own. Nine
 		// row slots is the hard ceiling before content draws off the plate,
 		// and a two-handed magazine weapon needs every one of them -- so the
@@ -1084,6 +1099,8 @@ class wr_Rig : EventHandler
 			sheetRow(hands.Length() ? (wr_CompatDoomablo.RarityWord(dblRarity) .. "  " .. hands)
 			                        : wr_CompatDoomablo.RarityWord(dblRarity),
 			         tierColorOf(w));
+		else if (isDI)
+			sheetRow(hands.Length() ? (diWord .. "  " .. hands) : diWord, tierColorOf(w));
 		else if (slotOf(w) >= 1 && slotOf(w) <= 9)
 			sheetRow(hands.Length() ? String.Format("SLOT %d  %s", slotOf(w), hands)
 			                        : String.Format("SLOT %d", slotOf(w)), SHEET_DIM);
@@ -1294,6 +1311,109 @@ class wr_Rig : EventHandler
 		if (hasBD)
 			sheetRow(String.Format("BD LEVEL %d", bdLvl), SHEET_TEXT);
 
+		// DOOM INFINITE -- see wr_compat_doominfinite.zs. The flagship
+		// target: its rolled stats already fed the universal rows above
+		// (damage, rate of fire, pellets, crit all resolve DECLARED from
+		// it), so everything here is the axes those rows cannot carry.
+		//
+		// THE NAME FIRST. subName is the generator's own loot name, built
+		// from the weapon's quirks -- "LEGENDARY DEMONIC SUPER SHOTGUN" --
+		// and it is the single line that tells a player what they are
+		// looking at before any number does.
+		bool diName; string diFullName;
+		[diName, diFullName] = wr_CompatDoomInfinite.NameOf(w);
+		if (diName) sheetRow(diFullName, tierColorOf(w));
+
+		// SPREAD gets its own row rather than feeding the universal
+		// ACCURACY one, and that is deliberate: this mod stores spread in
+		// tenths of a degree where LOWER is better, while every accuracy
+		// figure elsewhere on this sheet is higher-is-better. Mixing them
+		// would light the worse weapon green on the comparison card.
+		bool diSpr; double diSpread;
+		[diSpr, diSpread] = wr_CompatDoomInfinite.SpreadOf(w);
+		if (diSpr) sheetRow(String.Format("SPREAD %.1f DEG", diSpread), SHEET_MEAS);
+
+		// The three axes the generator actually rolls -- exotic ammo, an
+		// alternate fire mode, an alt-fire module. All three arrive as
+		// finished display strings from the mod itself.
+		bool diLoad; string diLoadout;
+		[diLoad, diLoadout] = wr_CompatDoomInfinite.LoadoutOf(w);
+		if (diLoad) sheetRow(diLoadout, SHEET_TEXT);
+
+		bool diQ; string diQuirks;
+		[diQ, diQuirks] = wr_CompatDoomInfinite.QuirksOf(w);
+		if (diQ) sheetRow(diQuirks, SHEET_HOT);
+
+		// AMMO COST, only where a shot costs more than one. Exotic ammo
+		// types multiply the blueprint cost, and the mod shows only the
+		// quirk word for it, never the number.
+		bool diCost; int diAmmoCost;
+		[diCost, diAmmoCost] = wr_CompatDoomInfinite.AmmoCostOf(w);
+		if (diCost) sheetRow(String.Format("AMMO COST %d/SHOT", diAmmoCost), SHEET_MEAS);
+
+		// JAM ODDS. Only ever shown on a weapon that actually carries the
+		// JAMMING quirk -- the field exists on every weapon but can only
+		// fire on that one, so printing it elsewhere would be a warning
+		// about something that cannot happen. The mod shows the word and
+		// never the odds.
+		bool diJam; int diJamPct;
+		[diJam, diJamPct] = wr_CompatDoomInfinite.JamOf(w);
+		if (diJam) sheetRow(String.Format("JAM %d%%", diJamPct), COLOR_AMMO_DRY);
+
+		// WHAT THIS WEAPON CAN NEVER BE RE-MODDED INTO -- a real reason to
+		// leave it on the floor, and nothing in the game says so.
+		bool diLock; string diLocks;
+		[diLock, diLocks] = wr_CompatDoomInfinite.LocksOf(w);
+		if (diLock) sheetRow("LOCKED " .. diLocks, SHEET_LOCK);
+
+		// THE SUPERCHARGER. While this is above zero the weapon deals
+		// TRIPLE damage, and the game communicates that with sparks alone.
+		bool diOc; int diOcVal, diOcMax;
+		[diOc, diOcVal, diOcMax] = wr_CompatDoomInfinite.OverchargeOf(w);
+		if (diOc)
+			sheetRow(String.Format("OVERCHARGE %d/%d  x3 DMG", diOcVal, diOcMax), SHEET_HOT);
+
+		// THE ARENA DESPAWN CLOCK, and the row with a deadline on it. A
+		// dropped weapon vanishes thirty seconds after its round ends, and
+		// the only tell in-game is the sprite slowly going translucent.
+		bool diDesp; int diLeft;
+		[diDesp, diLeft] = wr_CompatDoomInfinite.DespawnOf(w);
+		if (diDesp)
+			sheetRow(String.Format("DESPAWN %ds", diLeft),
+			         diLeft <= 10 ? color(COLOR_AMMO_DRY) : color(SHEET_DIM));
+
+		// HEAT TAKES THE GAUGE, same as Combined Arms' BlastMaster below --
+		// and they can never contend for it, since a weapon belongs to one
+		// mod or the other. A full 0-100 model the mod tracks and then shows
+		// the player nothing but smoke for.
+		bool diHeat; int diHeatVal; double diHeatPct;
+		[diHeat, diHeatVal, diHeatPct] = wr_CompatDoomInfinite.HeatOf(w);
+		if (diHeat)
+		{
+			color hc = (diHeatPct >= 0.8) ? color(COLOR_AMMO_DRY)
+			         : (diHeatPct >= 0.5) ? color(SHEET_HOT) : color(SHEET_MEAS);
+			sheetRow(String.Format("HEAT %d/%d", diHeatVal, wr_CompatDoomInfinite.HEAT_MAX), hc);
+			setSheetBar(int(diHeatPct * 100.0), hc, true);
+		}
+
+		// THE RUN ITSELF -- player-side, so shown regardless of which
+		// weapon is under the selector, the same way Doomablo's level is.
+		bool diRun; int diMaps, diLoops;
+		[diRun, diMaps, diLoops] = wr_CompatDoomInfinite.RunOf(w);
+		if (diRun)
+			sheetRow(diLoops > 0 ? String.Format("MAP %d  LOOP %d", diMaps, diLoops)
+			                     : String.Format("MAP %d", diMaps), SHEET_TEXT);
+
+		bool diStats; int diDmgPct, diSpdPct, diLuck;
+		[diStats, diDmgPct, diSpdPct, diLuck] = wr_CompatDoomInfinite.StatsOf(w);
+		if (diStats)
+			sheetRow(String.Format("DMG %d%%  SPD %d%%  LUCK %d", diDmgPct, diSpdPct, diLuck),
+			         SHEET_TEXT);
+
+		bool diPerk; int diPerks;
+		[diPerk, diPerks] = wr_CompatDoomInfinite.PerksOf(w);
+		if (diPerk) sheetRow(String.Format("PERKS %d", diPerks), SHEET_TEXT);
+
 		// Combined Arms -- see wr_compat_combinedarms.zs. Four classes with
 		// four different resource systems, so which of these rows answer at
 		// all depends on who the player is, not on which weapon is under the
@@ -1409,7 +1529,7 @@ class wr_Rig : EventHandler
 		// guard, and statRows only ever claims it for a weapon that actually
 		// has a Condition.
 		bool wantStats = cv("wr_sheet_stats", 1.0) > 0.0;
-		if (!caHeat) setSheetBar(0, SHEET_MEAS, false);
+		if (!caHeat && !diHeat) setSheetBar(0, SHEET_MEAS, false);
 		if (wantStats) statRows(w);
 
 		blankRestOfSheet();
@@ -5792,6 +5912,46 @@ class wr_Rig : EventHandler
 		[bdHas, bdDmg, bdAcc, bdRof, bdRcl, bdClip, bdLvl] = wr_CompatBorderDoom.StatsOf(w);
 		if (bdHas) { labels.Push("BD LVL"); values.Push(String.Format("%d", bdLvl)); }
 
+		// DOOM Infinite -- everything the universal rows cannot carry. The
+		// rolled stats themselves (damage, rate of fire, pellets, crit) are
+		// already the DECLARED source for those rows, so repeating them here
+		// would print the same number twice under two labels.
+		bool diQHas; string diQ;
+		[diQHas, diQ] = wr_CompatDoomInfinite.QuirksOf(w);
+		if (diQHas) { labels.Push("QUIRKS"); values.Push(diQ); }
+
+		bool diLHas; string diL;
+		[diLHas, diL] = wr_CompatDoomInfinite.LoadoutOf(w);
+		if (diLHas) { labels.Push("LOADOUT"); values.Push(diL); }
+
+		bool diSHas; double diS;
+		[diSHas, diS] = wr_CompatDoomInfinite.SpreadOf(w);
+		if (diSHas) { labels.Push("SPREAD"); values.Push(String.Format("%.1f", diS)); }
+
+		bool diCHas; int diC;
+		[diCHas, diC] = wr_CompatDoomInfinite.AmmoCostOf(w);
+		if (diCHas) { labels.Push("AMMO COST"); values.Push(String.Format("%d", diC)); }
+
+		bool diJHas; int diJ;
+		[diJHas, diJ] = wr_CompatDoomInfinite.JamOf(w);
+		if (diJHas) { labels.Push("JAM"); values.Push(String.Format("%d%%", diJ)); }
+
+		bool diKHas; string diK;
+		[diKHas, diK] = wr_CompatDoomInfinite.LocksOf(w);
+		if (diKHas) { labels.Push("LOCKED"); values.Push(diK); }
+
+		bool diOHas; int diOv, diOm;
+		[diOHas, diOv, diOm] = wr_CompatDoomInfinite.OverchargeOf(w);
+		if (diOHas) { labels.Push("OVERCHARGE"); values.Push(String.Format("%d/%d", diOv, diOm)); }
+
+		bool diDHas; int diD;
+		[diDHas, diD] = wr_CompatDoomInfinite.DespawnOf(w);
+		if (diDHas) { labels.Push("DESPAWN"); values.Push(String.Format("%ds", diD)); }
+
+		bool diHHas; int diHv; double diHp;
+		[diHHas, diHv, diHp] = wr_CompatDoomInfinite.HeatOf(w);
+		if (diHHas) { labels.Push("HEAT"); values.Push(String.Format("%d/100", diHv)); }
+
 		// Combined Arms
 		bool caHHas; int caH, caHMax, caOver;
 		[caHHas, caH, caHMax, caOver] = wr_CompatCombinedArms.HeatOf(w);
@@ -5909,6 +6069,10 @@ class wr_Rig : EventHandler
 
 		[got, r] = wr_CompatDoomablo.RarityOf(w);
 		if (got) return true, wr_CompatDoomablo.RarityWord(r);
+
+		bool diGot; color diCol; string diWord;
+		[diGot, diCol, diWord] = wr_CompatDoomInfinite.FlavorOf(w);
+		if (diGot) return true, diWord;
 
 		return false, "";
 	}

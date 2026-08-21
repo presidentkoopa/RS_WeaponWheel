@@ -327,6 +327,11 @@ OptionMenu wr_Compat
 	Option "  Mod Station upgrades row", "wr_drla_mods",   "OnOff"
 	// Rarity, plus your character level, XP, Inferno level and rolled stats.
 	Option "Doomablo rarity and level", "wr_dbl_compat",   "OnOff"
+	// Rolled damage/rate/spread/pellets/crit, exotic ammo, fire modes, alt
+	// modules, quirks, overheat and the run itself. Its stats are readable on
+	// a weapon still on the floor, so this is the mod the inspect card and
+	// the comparison table were really built for.
+	Option "DOOM Infinite weapon rolls", "wr_di_compat",   "OnOff"
 
 	StaticText ""
 	StaticText "Mods with no rarity ladder", gold

@@ -96,6 +96,14 @@ class wr_Stats
 				return SRC_DECLARED, dmg, dmg;
 		}
 
+		// DOOM Infinite stores its rolled damage as a plain field, and --
+		// uniquely among every mod read here -- it is already populated on
+		// a weapon lying on the floor, before anyone has picked it up. That
+		// is what makes a genuine before-you-take-it comparison possible.
+		bool di; int diDmg;
+		[di, diDmg] = wr_CompatDoomInfinite.DamageOf(w);
+		if (di) return SRC_DECLARED, diDmg, diDmg;
+
 		// BorderDoom caches a real per-weapon damage figure, but only for
 		// weapons actually carried -- see wr_compat_borderdoom.zs.
 		bool bd; int bdDmg, bdAcc, bdRof, bdRcl, bdClip, bdLvl;
@@ -123,6 +131,13 @@ class wr_Stats
 			if (level.GetFieldInt(w, "RateOfFire", rof) && rof > 0)
 				return SRC_DECLARED, double(rof);
 		}
+
+		// Converted from tics-between-shots inside the compat file -- see
+		// its header on why handing the raw field over would invert the
+		// meaning of every rate comparison on the card.
+		bool di; double diRps;
+		[di, diRps] = wr_CompatDoomInfinite.RofOf(w);
+		if (di) return SRC_DECLARED, diRps;
 
 		bool bd; int bdDmg, bdAcc, bdRof, bdRcl, bdClip, bdLvl;
 		[bd, bdDmg, bdAcc, bdRof, bdRcl, bdClip, bdLvl] = wr_CompatBorderDoom.StatsOf(w);
@@ -184,6 +199,10 @@ class wr_Stats
 				return SRC_DECLARED, pel;
 		}
 
+		bool di; int diPel;
+		[di, diPel] = wr_CompatDoomInfinite.PelletsOf(w);
+		if (di) return SRC_DECLARED, diPel;
+
 		bool got; int n;
 		[got, n] = wr_StatTracker.PelletsOf(w);
 		if (got) return SRC_OBSERVED, n;
@@ -241,12 +260,24 @@ class wr_Stats
 	// rather than shown as a stat that means nothing here.
 	static play int, double Crit(Weapon w)
 	{
-		if (!w || !isRS(w)) return SRC_UNKNOWN, 0.0;
-		if (lockedBy(w, "LockedCritChance")) return SRC_MASKED, 0.0;
+		if (!w) return SRC_UNKNOWN, 0.0;
 
-		double crit;
-		if (level.GetFieldFloat(w, "CritChance", crit))
-			return SRC_DECLARED, crit * 100.0;
+		if (isRS(w))
+		{
+			if (lockedBy(w, "LockedCritChance")) return SRC_MASKED, 0.0;
+
+			double crit;
+			if (level.GetFieldFloat(w, "CritChance", crit))
+				return SRC_DECLARED, crit * 100.0;
+			return SRC_UNKNOWN, 0.0;
+		}
+
+		// DOOM Infinite keeps crit as a whole percent rather than RS
+		// Weapon's 0..1 fraction, so it is handed over unscaled.
+		bool di; double diCrit;
+		[di, diCrit] = wr_CompatDoomInfinite.CritOf(w);
+		if (di) return SRC_DECLARED, diCrit;
+
 		return SRC_UNKNOWN, 0.0;
 	}
 

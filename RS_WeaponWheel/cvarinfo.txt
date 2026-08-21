@@ -593,6 +593,15 @@ user bool  wr_meta_compat = true;
 // that ACS call itself -- see the file header for why. No tier row.
 user bool  wr_bd_compat = true;
 
+// DOOM Infinite's procedural weapon generator -- see
+// wr_compat_doominfinite.zs. The flagship compat target: real ZScript, and
+// the only mod here whose rolled stats are fully populated on a weapon still
+// lying on the FLOOR, which is what makes a genuine before-you-take-it
+// comparison possible at all. Feeds the universal damage/rate/pellet/crit
+// rows as a declared source AND colours the card by its flavour quirk, so
+// this is also the fifth mod that gets a tier word on the title row.
+user bool  wr_di_compat = true;
+
 // Combined Arms' four classes and every meter they run on -- see
 // wr_compat_combinedarms.zs. That mod is DECORATE + ACS with no ZScript, so
 // none of the field reflection the switches above rely on applies to it at
