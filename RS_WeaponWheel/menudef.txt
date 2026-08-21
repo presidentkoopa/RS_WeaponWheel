@@ -337,6 +337,12 @@ OptionMenu wr_Compat
 	// from the array BorderDoom's own stat lookup writes into, never from
 	// that lookup itself, which has side effects on your ammo capacity.
 	Option "BorderDoom weapon stats",   "wr_bd_compat",    "OnOff"
+	// All four classes and their meters -- BlastMaster heat (which also
+	// takes the sheet's gauge), Artificer skill and mace, the Tech Monk's
+	// Striker and Kame Bomb, Past Linked's subweapon carousel and its three
+	// upgrade ladders. Includes the warning the game itself only gives you
+	// once: which upgrades vanish when you leave the level.
+	Option "Combined Arms class meters", "wr_ca_compat",   "OnOff"
 
 	StaticText ""
 }

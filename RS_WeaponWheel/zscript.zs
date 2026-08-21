@@ -51,6 +51,12 @@
 // GetCurrentDamage family. No tier row, purely supplementary.
 #include "wr_compat_borderdoom.zs"
 
+// wr_compat_combinedarms.zs -- reading Combined Arms' four classes and all
+// of their meters. DECORATE + ACS with no ZScript, so no field reflection
+// applies at all -- everything is an inventory item Amount instead, read by
+// the owned-item walk, and not one of its ACS scripts is ever called.
+#include "wr_compat_combinedarms.zs"
+
 // wr_stattracker.zs -- kills, shots fired, accuracy, headshots (if that mod
 // is loaded), and an observed damage/rate-of-fire estimate for weapons that
 // don't already expose a real one. Not a compat file -- nothing else
@@ -1242,6 +1248,64 @@ class wr_Rig : EventHandler
 			sheetRow(String.Format("ROF %d  RECOIL %d  CLIP %d", bdRof, bdRcl, bdClip), SHEET_TEXT);
 		}
 
+		// Combined Arms -- see wr_compat_combinedarms.zs. Four classes with
+		// four different resource systems, so which of these rows answer at
+		// all depends on who the player is, not on which weapon is under the
+		// selector. No tier concept, so none of it touches the title row.
+		//
+		// BLASTMASTER HEAT TAKES THE GAUGE when it applies. The sheet has one
+		// bar and it belongs to RS Weapon's Condition -- but a BlastMaster is
+		// by definition not holding an RS Weapon gun, so the two can never
+		// contend for it, and heat is the one reading in this mod that is
+		// genuinely a fill rather than a number.
+		bool caHeat; int caH, caHMax, caOver;
+		[caHeat, caH, caHMax, caOver] = wr_CompatCombinedArms.HeatOf(w);
+		if (caHeat)
+		{
+			if (caOver > 0)
+			{
+				// Heat itself has been zeroed by the mod at this point, so
+				// showing it would read as a cool, healthy gun during the
+				// exact twenty seconds the player cannot fire.
+				sheetRow(String.Format("OVERHEATED  %ds", caOver / 70 + 1), SHEET_LOCK);
+				setSheetBar(100, color(SHEET_LOCK), true);
+			}
+			else
+			{
+				string hw = wr_CompatCombinedArms.HeatWord(caH);
+				color hc = (caH >= wr_CompatCombinedArms.HEAT_WARN)  ? color(COLOR_AMMO_DRY)
+				         : (caH >= wr_CompatCombinedArms.HEAT_TIER3) ? color(SHEET_HOT)
+				                                                     : color(SHEET_MEAS);
+				sheetRow(hw.Length() ? String.Format("HEAT %d/%d  %s", caH, caHMax, hw)
+				                     : String.Format("HEAT %d/%d", caH, caHMax), hc);
+				setSheetBar(caHMax > 0 ? (caH * 100 / caHMax) : 0, hc, true);
+			}
+		}
+
+		bool caRes; string caResRow;
+		[caRes, caResRow] = wr_CompatCombinedArms.ResourceRow(w);
+		if (caRes) sheetRow(caResRow, SHEET_TEXT);
+
+		bool caCd; string caCdRow;
+		[caCd, caCdRow] = wr_CompatCombinedArms.CooldownRow(w);
+		if (caCd) sheetRow(caCdRow, SHEET_LOCK);
+
+		bool caUp; string caUpRow;
+		[caUp, caUpRow] = wr_CompatCombinedArms.UpgradeRow(w);
+		if (caUp) sheetRow(caUpRow, SHEET_TEXT);
+
+		// The one row here the game itself has no other way of telling the
+		// player -- see the compat file's own header. Coloured as a warning
+		// because that is what it is.
+		bool caExp; string caExpRow;
+		[caExp, caExpRow] = wr_CompatCombinedArms.ExpiryRow(w);
+		if (caExp) sheetRow(caExpRow, COLOR_AMMO_DRY);
+
+		// Live state Combined Arms tracks and never draws anywhere.
+		bool caHid; string caHidRow;
+		[caHid, caHidRow] = wr_CompatCombinedArms.HiddenRow(w);
+		if (caHid) sheetRow(caHidRow, SHEET_HOT);
+
 		// This wheel's own kill/shot/accuracy/headshot tracker -- see
 		// wr_stattracker.zs. Everything above this point is a READ of data
 		// some other mod already computed; nothing anywhere computes THIS,
@@ -1308,8 +1372,16 @@ class wr_Rig : EventHandler
 		if (hasHeld)
 			sheetRow("HELD " .. wr_StatTracker.HeldWord(trHeld), SHEET_DIM);
 
+		// THE BAR HAS TWO POSSIBLE OWNERS NOW, and only one of them can be
+		// right for a given weapon. rsRows() drives it from RS Weapon's
+		// Condition; the BlastMaster heat block above drives it from heat.
+		// They cannot both apply -- a BlastMaster is not holding an RS
+		// Weapon gun -- but the ELSE here used to hide the bar
+		// unconditionally for anything that was not an RS weapon, which
+		// would have wiped the heat gauge one line after it was set.
+		// caHeat is the guard: whoever claimed the bar keeps it.
 		if (isRS && cv("wr_sheet_stats", 1.0) > 0.0) rsRows(w);
-		else                                        setSheetBar(0, SHEET_MEAS, false);
+		else if (!caHeat)                           setSheetBar(0, SHEET_MEAS, false);
 
 		blankRestOfSheet();
 	}

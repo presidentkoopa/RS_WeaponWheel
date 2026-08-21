@@ -593,6 +593,14 @@ user bool  wr_meta_compat = true;
 // that ACS call itself -- see the file header for why. No tier row.
 user bool  wr_bd_compat = true;
 
+// Combined Arms' four classes and every meter they run on -- see
+// wr_compat_combinedarms.zs. That mod is DECORATE + ACS with no ZScript, so
+// none of the field reflection the switches above rely on applies to it at
+// all; its state lives in inventory item counts instead, read by walking
+// what the player carries. No rarity ladder, so no title row, no
+// wr_tier_color -- purely the rows it adds.
+user bool  wr_ca_compat = true;
+
 // This wheel's OWN kill/shot/accuracy/headshot tracker -- see
 // wr_stattracker.zs. Not a compat switch: nothing above this reads another
 // mod's fields, it watches the game happen and keeps its own counters, per
