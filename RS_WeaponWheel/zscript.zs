@@ -5496,6 +5496,19 @@ class wr_Rig : EventHandler
 
 		let pmo = players[consoleplayer].mo;
 
+		// DOOM Infinite opens full-screen ACS menus for its Limbo vendor,
+		// mod station and guide, and gates its OWN input on exactly this
+		// state. Inspect mode has to as well: it fires on dwell, unasked,
+		// and inside a menu the laser is resting on the menu -- an uninvited
+		// card over the vendor screen is the one place this could actively
+		// get in the way. The RING is left alone deliberately; that takes a
+		// keypress, so a player who opens it inside a menu meant to.
+		if (wr_CompatDoomInfinite.Suppressed(pmo))
+		{
+			endInspect();
+			return;
+		}
+
 		// Both hands are asked, and the MAIN hand wins a tie. Nothing here
 		// casts a trace -- the engine refreshes these every render frame for
 		// the laser sight, so this is a read of work already done.

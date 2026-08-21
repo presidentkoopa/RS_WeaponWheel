@@ -450,6 +450,37 @@ class wr_CompatDoomInfinite
 	}
 
 	//==========================================================================
+	// IS THE PLAYER INSIDE ONE OF THE MOD'S OWN MENUS.
+	//
+	// Limbo is a walkable hub with a vendor, a mod station and a guide, and
+	// each opens a full-screen ACS interface. DOOM Infinite gates its OWN
+	// input on exactly this pair -- `if (user_paused || currentMenuID !=
+	// MENU_NONE)` appears throughout zPlayer.zsc to stop doors opening and
+	// weapons firing from inside a menu.
+	//
+	// INSPECT MODE HAS TO RESPECT IT AND THE RING DOES NOT. The ring is
+	// summoned by a deliberate keypress -- a player who opens the shop and
+	// then presses the wheel key meant to. Inspect mode fires on DWELL,
+	// unasked, purely because a laser happened to rest somewhere -- and
+	// inside a menu the laser is resting on the menu. An uninvited card
+	// floating over the vendor screen is the one place this feature could
+	// actively get in the way, so it goes quiet there.
+	//
+	// MENU_NONE = 0, GUIDE = 1, MOD = 2, SHOP = 3.
+	static bool Suppressed(PlayerPawn pmo)
+	{
+		if (!pmo || cv("wr_di_compat", 1.0) <= 0.0) return false;
+
+		int menu;
+		if (level.GetFieldInt(pmo, "currentMenuID", menu) && menu != 0) return true;
+
+		int paused;
+		if (level.GetFieldInt(pmo, "user_paused", paused) && paused != 0) return true;
+
+		return false;
+	}
+
+	//==========================================================================
 	// PLAYER-SIDE. The run's own numbers, independent of which weapon is in
 	// hand, so these are read off the owner the same way Doomablo's player
 	// level and Guncaster's resources are.
