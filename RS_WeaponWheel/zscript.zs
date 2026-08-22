@@ -651,6 +651,7 @@ class wr_Rig : EventHandler
 		if (e.Name ~== "wr_ms_cycle_main") { wr_CompatModelSwapper.Cycle(0, 1); return; }
 		if (e.Name ~== "wr_ms_cycle_off")  { wr_CompatModelSwapper.Cycle(1, 1); return; }
 
+
 		if (e.Name ~== "wr_grab")
 		{
 			let pmo = players[consoleplayer].mo;
@@ -2751,6 +2752,11 @@ class wr_Rig : EventHandler
 	{
 		let c = CVar.GetCVar(name, players[consoleplayer]);
 		return (c == null) ? fallback : (c.GetInt() != 0);
+	}
+
+	private static bool wr_suppressNativeWheel()
+	{
+		return cvBool("wr_suppress_native_wheel", true);
 	}
 
 	//==========================================================================
@@ -6889,6 +6895,20 @@ class wr_Rig : EventHandler
 
 	override void WorldTick()
 	{
+		// SYNC THE ENGINE'S OWN vr_wheel_enable TO OUR MENU OPTION, live,
+		// every tic -- same "change it with the rig open and the next tic
+		// picks it up" promise every other setting in this mod makes.
+		//
+		// NOT ARCHIVED ON THE ENGINE SIDE, on purpose (see hw_vrwheel.cpp):
+		// it always starts true at a fresh launch, so an un-modded session
+		// is never left with the native wheel disabled just because this
+		// mod set it false in some earlier session. That means it has to
+		// be set EVERY session this mod loads, not once and forgotten --
+		// a plain bool write with nothing behind it, cheap enough to just
+		// do every tic rather than track whether the menu option changed.
+		let nativeWheel = CVar.FindCVar("vr_wheel_enable");
+		if (nativeWheel) nativeWheel.SetBool(!wr_suppressNativeWheel());
+
 		if (mWantAutoOpen)
 		{
 			let p = players[consoleplayer];

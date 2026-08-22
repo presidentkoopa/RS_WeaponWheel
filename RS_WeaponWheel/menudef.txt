@@ -37,6 +37,13 @@ OptionMenu wr_Options
 	// from how you hold it, so raw wrist roll swings the ring behind you.
 	Slider "Wrist roll spins the ring", "wr_roll",         0.0, 1.0, 0.05, 2
 
+	// Closes the ENGINE'S OWN native VR wheels the instant any of the three
+	// tries to open -- ours already replaces two of them and the third is
+	// meant to route through this mod's own gesture instead. Off if you
+	// want the native wheels back, or want to compare them against this
+	// mod's own.
+	Option "Block the engine's native VR wheels", "wr_suppress_native_wheel", "OnOff"
+
 	StaticText ""
 	StaticText "Layout", gold
 	// Two shapes for the same set of cards. A ring divides 360 degrees by its

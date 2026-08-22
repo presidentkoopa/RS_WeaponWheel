@@ -631,6 +631,17 @@ user bool  wr_fd_compat = true;
 // wr_compat_modelswapper.zs. Ours, not a third party, so this is a real
 // two-way bridge rather than a read-only reflection guess: cycling a model
 // actually changes what is in your hands.
+// Shuts the engine's OWN native VR weapon/offhand/inventory wheels out
+// entirely -- our ring already replaces what the first two do, and
+// inventory access is meant to route through our own gesture instead of
+// the third. No engine-side switch exists for this (checked: every
+// vr_wheel_* cvar governs how it looks once open, none stop it from
+// opening), so this catches the engine's own "a wheel just opened"
+// netevent and closes it again the same tic, before a second frame could
+// render it. ON by default -- if you want the native wheels back, or want
+// to A/B them against this mod's own, turn it off.
+user bool  wr_suppress_native_wheel = true;
+
 user bool  wr_ms_compat = true;
 
 user bool  wr_lith_compat = true;
