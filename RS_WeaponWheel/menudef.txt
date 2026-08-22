@@ -365,9 +365,11 @@ OptionMenu wr_Compat
 	// and status effects. Nothing reads off a Lithium weapon on the floor --
 	// that mod deletes unowned weapon actors.
 	Option "Lithium weapons",           "wr_lith_compat", "OnOff"
-	// Separate switch, off by default: this is the only setting in the whole
-	// mod that calls another mod's own scripts rather than reading its data.
-	// Turn it off if a Lithium update lands before an update to this.
+	// Separate switch, because this is the only setting in the whole mod that
+	// calls another mod's own scripts rather than reading its data. Five gates
+	// sit in front of the call and the script was disassembled to prove it
+	// cannot mutate anything -- but turn this off if a Lithium update lands
+	// before an update to this, or if those rows ever look wrong.
 	Option "  Lithium RPG stats (ACS)", "wr_lith_acs",    "OnOff"
 
 	StaticText ""

@@ -630,7 +630,7 @@ user bool  wr_fd_compat = true;
 user bool  wr_lith_compat = true;
 
 // Lithium's RPG layer -- the seven attributes, the 76-entry upgrade tree, the
-// rifle's fire mode. OFF BY DEFAULT, and that is deliberate.
+// rifle's fire mode.
 //
 // Everything else this wheel reads is a field or an inventory count. THIS one
 // switch calls into another mod's own ACS (its script 17002), which is the
@@ -640,13 +640,20 @@ user bool  wr_lith_compat = true;
 // mutated ammo capacity -- is structurally impossible rather than merely
 // unobserved.
 //
-// What is still risky is the BINDING: the script number and its argument
-// indices are positional and undocumented, so a Lithium update can silently
-// change what comes back. The reader only trusts an EXACT version match
-// (1.7.0, the only build audited) and shuts itself off for the session if its
-// startup canary disagrees -- but this switch is the manual kill for the case
-// where an update lands before a patch does.
-user bool  wr_lith_acs = false;
+// ON, after five independent gates were built in front of the call: the owner
+// must be a Lith_Player by class ancestry (so nothing fires when Lithium is
+// absent), the version must match 1.7.0 EXACTLY, only five allowlisted info
+// codes are permitted (the six that write savegame-persisted state are refused
+// mechanically), the index is clamped here because Lithium does not
+// bounds-check and GZDoom's global-array read INSERTS on a miss, and a canary
+// verifies the returned data before any of it is trusted.
+//
+// The residual risk this switch exists for: the canary necessarily runs AFTER
+// the first call, so it detects a script 17002 that belongs to some other mod
+// rather than preventing one call to it. That needs Lithium loaded, reporting
+// 1.7.0, AND another mod owning the same script number. Narrow -- but this is
+// the manual kill for it, and for a Lithium update landing before a patch.
+user bool  wr_lith_acs = true;
 
 // INSPECT MODE -- the data card without the wheel.
 //
