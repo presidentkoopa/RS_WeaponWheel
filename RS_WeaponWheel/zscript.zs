@@ -465,8 +465,12 @@ class wr_Rig : EventHandler
 	int mCmpPlate, mCmpAccent, mCmpTitle, mCmpSub, mCmpHeadA, mCmpHeadB;
 	int mCmpUsed;
 
-	Weapon mInspectWpn;      // what is currently being inspected, if anything
-	Weapon mInspectCand;     // what the laser is resting on right now
+	// ACTOR, NOT WEAPON, and that is the whole point of the pickup path
+	// below: some mods never leave a real weapon lying on the floor. Lithium
+	// deletes any unowned weapon actor outright and drops a slot-generic
+	// stand-in instead, so a Weapon-typed target could never see one.
+	Actor mInspectWpn;       // what is currently being inspected, if anything
+	Actor mInspectCand;      // what the laser is resting on right now
 	int    mInspectTics;     // how long it has rested there
 	int    mInspectHand;     // which hand is pointing (0 main, 1 off)
 
@@ -5886,6 +5890,67 @@ class wr_Rig : EventHandler
 	// of the camera instead; this does the same, so the rig is usable with no
 	// tracked hands at all.
 	//==========================================================================
+	// PICKUP STAND-INS -- the generic hook, one branch per mod that needs it.
+	//
+	// Most mods leave a real Weapon actor lying on the floor and inspect mode
+	// reads it directly. Some do not: they delete the unowned weapon and drop
+	// a slot-generic placeholder that becomes a real gun only at the moment
+	// you touch it. Pointing at one of those used to show nothing at all,
+	// because the target was Weapon-typed and a placeholder is not a Weapon.
+	//
+	// The answer can depend on WHO IS ASKING -- Lithium's nine placeholders
+	// each give a different weapon per character -- so the player is passed
+	// in rather than assumed.
+	//
+	// FOUND (this is a placeholder we recognise), LABEL (what it would give,
+	// or "" for a placeholder that gives THIS character nothing, which is a
+	// real answer and not a failed lookup).
+	private bool, string pickupStandIn(Actor a, PlayerPawn pmo)
+	{
+		bool got; string label;
+		[got, label] = wr_CompatLithium.PickupOf(a, pmo);
+		if (got) return true, label;
+
+		return false, "";
+	}
+
+	// THE PICKUP CARD. Deliberately thin, because a placeholder genuinely
+	// knows almost nothing -- it has no magazine, no ammo, no rolled stats,
+	// and inventing rows to fill the space would be inventing data.
+	//
+	// What it does know is the one thing worth walking over for: which weapon
+	// this becomes for the character you are playing right now.
+	private void buildPickupRows(string label)
+	{
+		mSheetUsed = 0;
+
+		bool nothing = (label.Length() == 0);
+		string title = nothing ? "NOTHING HERE" : label;
+		color  tint  = nothing ? color(SHEET_DIM) : color(SHEET_TEXT);
+
+		if (mSheetTitle != 0)
+		{
+			level.SetBillboardText(mSheetTitle, title);
+			level.UpdateBillboard(mSheetTitle, 0, tint);
+		}
+		if (mSheetAccent != 0) level.UpdateBillboard(mSheetAccent, 0, tint);
+
+		// An empty label is not a lookup that failed -- it is the mod saying
+		// this character cannot use this pickup at all, which is exactly what
+		// you want to know BEFORE walking across a room for it.
+		if (nothing)
+		{
+			sheetRow("NOT FOR YOUR CHARACTER", COLOR_AMMO_DRY);
+			blankRestOfSheet();
+			return;
+		}
+
+		sheetRow("ON THE FLOOR", SHEET_DIM);
+		sheetRow("PICK UP TO SEE ITS STATS", SHEET_DIM);
+		blankRestOfSheet();
+	}
+
+	//==========================================================================
 	// INSPECT MODE'S OWN TICK. Runs whether or not the ring is open, which is
 	// the whole point -- see the mInspect* fields for why the sheet needed to
 	// escape the wheel at all.
@@ -5924,18 +5989,38 @@ class wr_Rig : EventHandler
 		// Both hands are asked, and the MAIN hand wins a tie. Nothing here
 		// casts a trace -- the engine refreshes these every render frame for
 		// the laser sight, so this is a read of work already done.
-		Weapon found = null;
+		Actor tgt = null;
 		int hand = 0;
 
-		let tm = Weapon(pmo.LaserTraceTargetMain);
-		let to = Weapon(pmo.LaserTraceTargetOff);
-		if (tm != null)      { found = tm; hand = 0; }
-		else if (to != null) { found = to; hand = 1; }
+		if (pmo.LaserTraceTargetMain != null)
+		{
+			tgt = pmo.LaserTraceTargetMain; hand = 0;
+		}
+		else if (pmo.LaserTraceTargetOff != null)
+		{
+			tgt = pmo.LaserTraceTargetOff;  hand = 1;
+		}
 
-		// A weapon already in somebody's inventory is not a thing in the
+		// Anything already in somebody's inventory is not a thing in the
 		// world to consider -- that includes the two in your own hands, which
-		// a laser can easily rest on.
-		if (found != null && found.Owner != null) found = null;
+		// a laser can easily rest on. Asked of Inventory rather than Weapon
+		// so it covers a pickup stand-in too.
+		let tinv = Inventory(tgt);
+		if (tinv != null && tinv.Owner != null) tgt = null;
+
+		// TWO KINDS OF TARGET. A real weapon lying there is the ordinary
+		// case. The other is a mod's slot-generic PICKUP STAND-IN, which is
+		// not a Weapon at all and so was invisible here until now.
+		//
+		// Nothing else is accepted: the laser rests on monsters, walls and
+		// scenery constantly, and a card for those would be noise.
+		Weapon foundW = Weapon(tgt);
+		bool  isPickup = false;
+		string pickLabel = "";
+		if (foundW == null && tgt != null)
+			[isPickup, pickLabel] = pickupStandIn(tgt, pmo);
+
+		Actor found = (foundW != null) ? Actor(foundW) : (isPickup ? tgt : null);
 
 		if (found == null)
 		{
@@ -5970,7 +6055,11 @@ class wr_Rig : EventHandler
 		// filled could.
 		Weapon mine = (mInspectHand == 1) ? pmo.player.OffhandWeapon
 		                                  : pmo.player.ReadyWeapon;
-		bool wantCompare = (mine != null && mine != found
+
+		// A pickup stand-in has nothing to compare WITH -- it is a promise of
+		// a weapon, not a weapon, and none of the resolver's stats exist for
+		// it. So the trade card is a weapon-only path by construction.
+		bool wantCompare = (foundW != null && mine != null && mine != foundW
 		                    && cv("wr_inspect_delta", 1.0) > 0.0);
 
 		// Built once and only re-strung when the target changes -- neither
@@ -5984,14 +6073,15 @@ class wr_Rig : EventHandler
 			{
 				clearSheet();
 				if (mCmpPlate == 0) buildCompare();
-				fillCompare(found, mine);
+				fillCompare(foundW, mine);
 			}
 			else
 			{
 				clearCompare();
 				if (mSheetPlate == 0) buildSheet();
 				mSheetShown = null;          // force buildSheetRows to redraw
-				buildSheetRows(found);
+				if (foundW != null) buildSheetRows(foundW);
+				else                buildPickupRows(pickLabel);
 				blankRestOfSheet();
 			}
 		}
@@ -6654,7 +6744,7 @@ class wr_Rig : EventHandler
 	{
 		mInspectCand = null;
 		mInspectTics = 0;
-		if (mInspectWpn == null) return;
+		if (mInspectWpn == null) return;   // Actor now -- weapon or stand-in
 
 		mInspectWpn = null;
 		clearCompare();
