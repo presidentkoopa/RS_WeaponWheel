@@ -627,6 +627,12 @@ user bool  wr_fd_compat = true;
 // NOTE that Lithium destroys any weapon actor with no owner, so unlike DOOM
 // Infinite there is nothing to read off a Lithium weapon lying on the floor --
 // every row here needs the gun to be carried.
+// ModelSwapper's model picker, live on the card -- see
+// wr_compat_modelswapper.zs. Ours, not a third party, so this is a real
+// two-way bridge rather than a read-only reflection guess: cycling a model
+// actually changes what is in your hands.
+user bool  wr_ms_compat = true;
+
 user bool  wr_lith_compat = true;
 
 // Lithium's RPG layer -- the seven attributes, the 76-entry upgrade tree, the

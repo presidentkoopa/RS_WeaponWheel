@@ -364,6 +364,10 @@ OptionMenu wr_Compat
 	// Seven characters, 48 weapons. Magazines, mana, heat, charge, spin-up
 	// and status effects. Nothing reads off a Lithium weapon on the floor --
 	// that mod deletes unowned weapon actors.
+	// Ours, not a third party -- a real two-way bridge, not a guess.
+	// Cycle keys are under the main RSVR HUD key section, unbound by
+	// default.
+	Option "ModelSwapper model on card", "wr_ms_compat",  "OnOff"
 	Option "Lithium weapons",           "wr_lith_compat", "OnOff"
 	// Separate switch, because this is the only setting in the whole mod that
 	// calls another mod's own scripts rather than reading its data. Five gates

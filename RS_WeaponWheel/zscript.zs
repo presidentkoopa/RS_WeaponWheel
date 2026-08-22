@@ -70,6 +70,13 @@
 // never touches the title row either.
 #include "wr_compat_finaldoomer.zs"
 
+// wr_compat_modelswapper.zs -- reading OUR OWN ModelSwapper mod, not a
+// third-party one. Still zero compile-time dependency, same reflection
+// natives as everything else here, but ModelSwapper's own code publishes a
+// small bridge of plain fields specifically for this, since we control
+// both sides.
+#include "wr_compat_modelswapper.zs"
+
 // wr_compat_lithium.zs -- reading Lithium's seven characters and 48 weapons.
 // Real ZScript, so most of it is ordinary field reflection; armour needs a
 // two-level walk through that mod's IDOL container and status effects need a
@@ -636,6 +643,13 @@ class wr_Rig : EventHandler
 		if (e.Name ~== "wr_toggle_off")  { toggle(preferredToggleHand(1)); return; }
 		if (e.Name ~== "wr_toggle_main") { toggle(preferredToggleHand(0)); return; }
 		if (e.Name ~== "wr_toggle")      { toggle(1); return; }
+
+		// MODELSWAPPER MODEL CYCLE. Applies to whatever weapon is actually
+		// in that hand right now, wheel open or not -- there is no reason
+		// to require the ring up just to swap a mesh, and every other bind
+		// in this handler already works regardless of mOpen.
+		if (e.Name ~== "wr_ms_cycle_main") { wr_CompatModelSwapper.Cycle(0, 1); return; }
+		if (e.Name ~== "wr_ms_cycle_off")  { wr_CompatModelSwapper.Cycle(1, 1); return; }
 
 		if (e.Name ~== "wr_grab")
 		{
@@ -1887,6 +1901,26 @@ class wr_Rig : EventHandler
 		// added another forty locals, and ZScript's register budget is per
 		// FUNCTION, so the fix is a smaller function rather than fewer rows.
 		bool liTookBar = lithiumRows(w);
+
+		// MODELSWAPPER. Only for a weapon actually IN A HAND right now --
+		// the bridge only ever tracks the two currently-held weapons, so a
+		// browsed-but-not-equipped card has nothing real to show here.
+		let sheetPmo = players[consoleplayer].mo;
+		let sheetPi = sheetPmo ? sheetPmo.player : null;
+		if (sheetPi != null && w != null)
+		{
+			int msHand = -1;
+			if (sheetPi.ReadyWeapon == w)        msHand = 0;
+			else if (sheetPi.OffhandWeapon == w) msHand = 1;
+
+			if (msHand >= 0)
+			{
+				bool msOn; string msArche, msDonor; int msPick, msCount;
+				[msOn, msArche, msPick, msCount, msDonor] = wr_CompatModelSwapper.StateOf(msHand);
+				if (msOn)
+					sheetRow(String.Format("MODEL %d/%d  %s", msPick + 1, msCount, msDonor), SHEET_MEAS);
+			}
+		}
 
 		// This wheel's own kill/shot/accuracy/headshot tracker -- see
 		// wr_stattracker.zs. Everything above this point is a READ of data

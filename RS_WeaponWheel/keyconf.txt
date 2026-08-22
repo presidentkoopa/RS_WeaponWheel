@@ -9,6 +9,16 @@ AddMenuKey "Main hand wheel" wr_toggle_main
 DefaultBind ] wr_toggle_off
 DefaultBind [ wr_toggle_main
 
+// MODELSWAPPER MODEL CYCLE -- ours, not a compat guess, so it earns a real
+// key rather than being buried in a gesture. Cycles whichever hand's
+// weapon is holding a ModelSwapper mesh; no default bind, since a model
+// swap mid-fight from a fat-fingered key would be worse than not having
+// the feature. Bindable from the menu like everything else here.
+AddMenuKey "Cycle main-hand model" wr_ms_cycle_main
+AddMenuKey "Cycle off-hand model"  wr_ms_cycle_off
+Alias wr_ms_cycle_main "netevent wr_ms_cycle_main"
+Alias wr_ms_cycle_off  "netevent wr_ms_cycle_off"
+
 // GUN READOUT PLACEMENT -- a calibration tool for whoever is measuring a
 // weapon set, not a normal-play control, so it gets NO default binds: none
 // of these can fire by accident during a fight because none of them are on
