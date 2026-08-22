@@ -335,7 +335,7 @@ OptionMenu wr_Compat
 
 	StaticText ""
 	StaticText "Mods with no rarity ladder", gold
-	// None of these four colour anything -- they have no tier concept at all,
+	// None of these six colour anything -- they have no tier concept at all,
 	// confirmed by survey rather than assumed. They only add rows.
 	//
 	// One switch for the whole Pandemonia family: base game durability,
@@ -356,6 +356,11 @@ OptionMenu wr_Compat
 	// upgrade ladders. Includes the warning the game itself only gives you
 	// once: which upgrades vanish when you leave the level.
 	Option "Combined Arms class meters", "wr_ca_compat",   "OnOff"
+	// Nine weapon sets, one active at a time. Coverage is uneven on purpose
+	// -- Whitemare, Hellbound, JPCP, Alien Vendetta and BTSX have real live
+	// counters worth a row; Doom II and Aliens TC are fixed math with
+	// nothing to read past which set is active.
+	Option "Final Doomer set mechanics", "wr_fd_compat",   "OnOff"
 
 	StaticText ""
 }

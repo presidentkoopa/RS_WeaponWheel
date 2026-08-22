@@ -610,6 +610,15 @@ user bool  wr_di_compat = true;
 // wr_tier_color -- purely the rows it adds.
 user bool  wr_ca_compat = true;
 
+// Final Doomer's nine weapon sets -- see wr_compat_finaldoomer.zs. Pure
+// DECORATE + ACS like Combined Arms, so the same owned-item walk, and no
+// rarity ladder anywhere across all nine sets -- no title row, no
+// wr_tier_color. Coverage is uneven on purpose: five sets (Whitemare,
+// Hellbound, JPCP, Alien Vendetta, BTSX) have real live counters worth a
+// row; Doom II and Aliens TC are fixed math with nothing to read past
+// which set is active.
+user bool  wr_fd_compat = true;
+
 // INSPECT MODE -- the data card without the wheel.
 //
 // Point at a weapon lying in the world and, after a moment's rest, the same

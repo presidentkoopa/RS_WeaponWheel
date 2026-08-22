@@ -64,6 +64,12 @@
 // are fully populated on a weapon still lying on the floor.
 #include "wr_compat_doominfinite.zs"
 
+// wr_compat_finaldoomer.zs -- reading Final Doomer's nine weapon sets. Pure
+// DECORATE + ACS like Combined Arms, so the same owned-item walk rather than
+// field reflection. No rarity ladder anywhere across all nine sets, so this
+// never touches the title row either.
+#include "wr_compat_finaldoomer.zs"
+
 // wr_stats.zs -- the universal stat resolver. Asks one question per stat
 // (damage, rate of fire, accuracy, pellets, magazine) of ANY weapon from any
 // mod, and takes the best answer available: the mod's own field, the
@@ -1533,6 +1539,112 @@ class wr_Rig : EventHandler
 		[caHid, caHidRow] = wr_CompatCombinedArms.HiddenRow(w);
 		if (caHid) sheetRow(caHidRow, SHEET_HOT);
 
+		// FINAL DOOMER -- nine weapon sets, one active at a time, no rarity
+		// ladder anywhere. See wr_compat_finaldoomer.zs for why coverage is
+		// uneven: five sets have real live counters, two are identification
+		// only.
+		bool fdName; string fdNameRow;
+		[fdName, fdNameRow] = wr_CompatFinalDoomer.NameOf(w);
+		if (fdName) sheetRow(fdNameRow, SHEET_TEXT);
+
+		// Plutonia Heavy Machine Gun spread, INVERTED like DOOM Infinite's
+		// statSpread -- lower is more accurate -- so it is its own row, never
+		// fed into the universal Accuracy resolver.
+		bool fdSpr; int fdSprN, fdSprMax;
+		[fdSpr, fdSprN, fdSprMax] = wr_CompatFinalDoomer.InaccuracyOf(w);
+		if (fdSpr)
+			sheetRow(String.Format("SPREAD %d/%d", fdSprN, fdSprMax),
+			         (fdSprN * 2 >= fdSprMax) ? color(COLOR_AMMO_DRY) : color(SHEET_MEAS));
+
+		bool fdBfg; int fdBfgN, fdBfgMax;
+		[fdBfg, fdBfgN, fdBfgMax] = wr_CompatFinalDoomer.BfgChargeOf(w);
+		if (fdBfg) sheetRow(String.Format("CHARGE %d/%d", fdBfgN, fdBfgMax), SHEET_HOT);
+
+		bool fdFc; int fdFcStage;
+		[fdFc, fdFcStage] = wr_CompatFinalDoomer.FistComboOf(w);
+		if (fdFc)
+			sheetRow(fdFcStage >= 2 ? "COMBO 2/2  UPPERCUT" : String.Format("COMBO %d/2", fdFcStage), SHEET_HOT);
+
+		bool fdBu; int fdBuN, fdBuMax;
+		[fdBu, fdBuN, fdBuMax] = wr_CompatFinalDoomer.BurstOf(w);
+		if (fdBu) sheetRow(String.Format("BURST %d/%d", fdBuN, fdBuMax), SHEET_TEXT);
+
+		bool fdHal; string fdHalWord;
+		[fdHal, fdHalWord] = wr_CompatFinalDoomer.HaldermanOf(w);
+		if (fdHal) sheetRow("MODE " .. fdHalWord, SHEET_TEXT);
+
+		bool fdMag; int fdMagL, fdMagR, fdMagMax;
+		[fdMag, fdMagL, fdMagR, fdMagMax] = wr_CompatFinalDoomer.MagnumsOf(w);
+		if (fdMag) sheetRow(String.Format("L %d/%d  R %d/%d", fdMagL, fdMagMax, fdMagR, fdMagMax), SHEET_TEXT);
+
+		bool fdPump; int fdPumpN, fdPumpMax;
+		[fdPump, fdPumpN, fdPumpMax] = wr_CompatFinalDoomer.PumpOf(w);
+		if (fdPump) sheetRow(String.Format("PUMP %d/%d", fdPumpN, fdPumpMax), SHEET_TEXT);
+
+		bool fdC4; int fdC4N, fdC4Max;
+		[fdC4, fdC4N, fdC4Max] = wr_CompatFinalDoomer.C4Of(w);
+		if (fdC4) sheetRow(String.Format("C4 CHARGES %d/%d", fdC4N, fdC4Max), (fdC4N > 0) ? color(SHEET_HOT) : color(SHEET_TEXT));
+
+		bool fdVc; int fdVcStage;
+		[fdVc, fdVcStage] = wr_CompatFinalDoomer.VendettaComboOf(w);
+		if (fdVc)
+			sheetRow(fdVcStage >= 2 ? "COMBO 2/2  HOOK" : String.Format("COMBO %d/2", fdVcStage), SHEET_HOT);
+
+		bool fdSg; int fdSgN, fdSgMax;
+		[fdSg, fdSgN, fdSgMax] = wr_CompatFinalDoomer.ShattergunOf(w);
+		if (fdSg) sheetRow(String.Format("BURST %d/%d", fdSgN, fdSgMax), SHEET_TEXT);
+
+		bool fdLock; bool fdLocked;
+		[fdLock, fdLocked] = wr_CompatFinalDoomer.BfgLockOf(w);
+		if (fdLock) sheetRow(fdLocked ? "LOCKED" : "SCANNING", fdLocked ? color(SHEET_HOT) : color(SHEET_MEAS));
+
+		bool fdKat; bool fdKatDrawn; bool fdKatNrg;
+		[fdKat, fdKatDrawn, fdKatNrg] = wr_CompatFinalDoomer.KatanaOf(w);
+		if (fdKat) sheetRow(fdKatDrawn ? "NRG KATANA  DRAWN" : "NRG KATANA  SHEATHED", SHEET_TEXT);
+
+		bool fdNdl; int fdNdlN, fdNdlMax;
+		[fdNdl, fdNdlN, fdNdlMax] = wr_CompatFinalDoomer.NeedlerOf(w);
+		if (fdNdl) sheetRow(String.Format("BURST %d/%d", fdNdlN, fdNdlMax), SHEET_TEXT);
+
+		bool fdNano; bool fdNanoOn;
+		[fdNano, fdNanoOn] = wr_CompatFinalDoomer.NanoCoreOf(w);
+		if (fdNano) sheetRow(fdNanoOn ? "NANOCORE ACTIVE" : "NANOCORE READY", fdNanoOn ? color(SHEET_HOT) : color(SHEET_TEXT));
+
+		bool fdFCh; int fdFChN, fdFChMax;
+		[fdFCh, fdFChN, fdFChMax] = wr_CompatFinalDoomer.FistChargeOf(w);
+		if (fdFCh) sheetRow(String.Format("CHARGE %d/%d", fdFChN, fdFChMax), SHEET_MEAS);
+
+		bool fdPCh; int fdPChN, fdPChMax;
+		[fdPCh, fdPChN, fdPChMax] = wr_CompatFinalDoomer.PistolChargeOf(w);
+		if (fdPCh) sheetRow(String.Format("CHARGE %d/%d", fdPChN, fdPChMax), SHEET_MEAS);
+
+		// Whitemare ThermoCoat TAKES THE GAUGE, same as Combined Arms'
+		// BlastMaster heat and DOOM Infinite's overload -- all three can
+		// never contend for it, a weapon belongs to exactly one mod.
+		bool fdHeat; int fdHeatN, fdHeatMax; bool fdHeatOn;
+		[fdHeat, fdHeatN, fdHeatMax, fdHeatOn] = wr_CompatFinalDoomer.ThermoCoatOf(w);
+		if (fdHeat)
+		{
+			color hc = fdHeatOn ? color(SHEET_HOT)
+			         : (fdHeatN * 2 >= fdHeatMax) ? color(COLOR_AMMO_DRY) : color(SHEET_MEAS);
+			sheetRow(String.Format("HEAT %d/%d%s", fdHeatN, fdHeatMax, fdHeatOn ? "  ACTIVE" : ""), hc);
+			setSheetBar(fdHeatMax > 0 ? (fdHeatN * 100 / fdHeatMax) : 0, hc, true);
+		}
+
+		bool fdWc; int fdWcN, fdWcMax; bool fdWcOver;
+		[fdWc, fdWcN, fdWcMax, fdWcOver] = wr_CompatFinalDoomer.WmChaingunOf(w);
+		if (fdWc)
+			sheetRow(String.Format("SPEED %d/%d%s", fdWcN, fdWcMax, fdWcOver ? "  OVERLOAD" : ""),
+			         fdWcOver ? color(COLOR_AMMO_DRY) : color(SHEET_TEXT));
+
+		bool fdWb; int fdWbTics;
+		[fdWb, fdWbTics] = wr_CompatFinalDoomer.WmBfgOf(w);
+		if (fdWb) sheetRow(String.Format("FIRING %ds", fdWbTics / 35 + 1), SHEET_HOT);
+
+		bool fdWr; int fdWrN, fdWrMax;
+		[fdWr, fdWrN, fdWrMax] = wr_CompatFinalDoomer.WmRocketOf(w);
+		if (fdWr) sheetRow(String.Format("CHARGE %d/%d", fdWrN, fdWrMax), SHEET_HOT);
+
 		// This wheel's own kill/shot/accuracy/headshot tracker -- see
 		// wr_stattracker.zs. Everything above this point is a READ of data
 		// some other mod already computed; nothing anywhere computes THIS,
@@ -1590,7 +1702,7 @@ class wr_Rig : EventHandler
 		// guard, and statRows only ever claims it for a weapon that actually
 		// has a Condition.
 		bool wantStats = cv("wr_sheet_stats", 1.0) > 0.0;
-		if (!caHeat && !diHeat) setSheetBar(0, SHEET_MEAS, false);
+		if (!caHeat && !diHeat && !fdHeat) setSheetBar(0, SHEET_MEAS, false);
 		if (wantStats) statRows(w);
 
 		blankRestOfSheet();
@@ -6054,6 +6166,91 @@ class wr_Rig : EventHandler
 		bool caHiHas; string caHiRow;
 		[caHiHas, caHiRow] = wr_CompatCombinedArms.HiddenRow(w);
 		if (caHiHas) { labels.Push("HIDDEN"); values.Push(caHiRow); }
+
+		// Final Doomer
+		bool fdNHas; string fdNRow;
+		[fdNHas, fdNRow] = wr_CompatFinalDoomer.NameOf(w);
+		if (fdNHas) { labels.Push("SET"); values.Push(fdNRow); }
+
+		bool fdSprHas; int fdSprN, fdSprMax;
+		[fdSprHas, fdSprN, fdSprMax] = wr_CompatFinalDoomer.InaccuracyOf(w);
+		if (fdSprHas) { labels.Push("SPREAD"); values.Push(String.Format("%d/%d", fdSprN, fdSprMax)); }
+
+		bool fdBfgHas; int fdBfgN, fdBfgMax;
+		[fdBfgHas, fdBfgN, fdBfgMax] = wr_CompatFinalDoomer.BfgChargeOf(w);
+		if (fdBfgHas) { labels.Push("CHARGE"); values.Push(String.Format("%d/%d", fdBfgN, fdBfgMax)); }
+
+		bool fdFcHas; int fdFcStage;
+		[fdFcHas, fdFcStage] = wr_CompatFinalDoomer.FistComboOf(w);
+		if (fdFcHas) { labels.Push("COMBO"); values.Push(String.Format("%d/2", fdFcStage)); }
+
+		bool fdBuHas; int fdBuN, fdBuMax;
+		[fdBuHas, fdBuN, fdBuMax] = wr_CompatFinalDoomer.BurstOf(w);
+		if (fdBuHas) { labels.Push("BURST"); values.Push(String.Format("%d/%d", fdBuN, fdBuMax)); }
+
+		bool fdHalHas; string fdHalWord;
+		[fdHalHas, fdHalWord] = wr_CompatFinalDoomer.HaldermanOf(w);
+		if (fdHalHas) { labels.Push("MODE"); values.Push(fdHalWord); }
+
+		bool fdMagHas; int fdMagL, fdMagR, fdMagMax;
+		[fdMagHas, fdMagL, fdMagR, fdMagMax] = wr_CompatFinalDoomer.MagnumsOf(w);
+		if (fdMagHas) { labels.Push("CYLINDERS"); values.Push(String.Format("L%d R%d /%d", fdMagL, fdMagR, fdMagMax)); }
+
+		bool fdPumpHas; int fdPumpN, fdPumpMax;
+		[fdPumpHas, fdPumpN, fdPumpMax] = wr_CompatFinalDoomer.PumpOf(w);
+		if (fdPumpHas) { labels.Push("PUMP"); values.Push(String.Format("%d/%d", fdPumpN, fdPumpMax)); }
+
+		bool fdC4Has; int fdC4N, fdC4Max;
+		[fdC4Has, fdC4N, fdC4Max] = wr_CompatFinalDoomer.C4Of(w);
+		if (fdC4Has) { labels.Push("C4 CHARGES"); values.Push(String.Format("%d/%d", fdC4N, fdC4Max)); }
+
+		bool fdVcHas; int fdVcStage;
+		[fdVcHas, fdVcStage] = wr_CompatFinalDoomer.VendettaComboOf(w);
+		if (fdVcHas) { labels.Push("COMBO"); values.Push(String.Format("%d/2", fdVcStage)); }
+
+		bool fdSgHas; int fdSgN, fdSgMax;
+		[fdSgHas, fdSgN, fdSgMax] = wr_CompatFinalDoomer.ShattergunOf(w);
+		if (fdSgHas) { labels.Push("BURST"); values.Push(String.Format("%d/%d", fdSgN, fdSgMax)); }
+
+		bool fdLockHas; bool fdLocked;
+		[fdLockHas, fdLocked] = wr_CompatFinalDoomer.BfgLockOf(w);
+		if (fdLockHas) { labels.Push("LOCK"); values.Push(fdLocked ? "LOCKED" : "SCANNING"); }
+
+		bool fdKatHas; bool fdKatDrawn; bool fdKatNrg;
+		[fdKatHas, fdKatDrawn, fdKatNrg] = wr_CompatFinalDoomer.KatanaOf(w);
+		if (fdKatHas) { labels.Push("KATANA"); values.Push(fdKatDrawn ? "DRAWN" : "SHEATHED"); }
+
+		bool fdNdlHas; int fdNdlN, fdNdlMax;
+		[fdNdlHas, fdNdlN, fdNdlMax] = wr_CompatFinalDoomer.NeedlerOf(w);
+		if (fdNdlHas) { labels.Push("BURST"); values.Push(String.Format("%d/%d", fdNdlN, fdNdlMax)); }
+
+		bool fdNanoHas; bool fdNanoOn;
+		[fdNanoHas, fdNanoOn] = wr_CompatFinalDoomer.NanoCoreOf(w);
+		if (fdNanoHas) { labels.Push("NANOCORE"); values.Push(fdNanoOn ? "ACTIVE" : "READY"); }
+
+		bool fdFChHas; int fdFChN, fdFChMax;
+		[fdFChHas, fdFChN, fdFChMax] = wr_CompatFinalDoomer.FistChargeOf(w);
+		if (fdFChHas) { labels.Push("CHARGE"); values.Push(String.Format("%d/%d", fdFChN, fdFChMax)); }
+
+		bool fdPChHas; int fdPChN, fdPChMax;
+		[fdPChHas, fdPChN, fdPChMax] = wr_CompatFinalDoomer.PistolChargeOf(w);
+		if (fdPChHas) { labels.Push("CHARGE"); values.Push(String.Format("%d/%d", fdPChN, fdPChMax)); }
+
+		bool fdHeatHas; int fdHeatN, fdHeatMax; bool fdHeatOn;
+		[fdHeatHas, fdHeatN, fdHeatMax, fdHeatOn] = wr_CompatFinalDoomer.ThermoCoatOf(w);
+		if (fdHeatHas) { labels.Push("HEAT"); values.Push(fdHeatOn ? String.Format("%d/%d ACTIVE", fdHeatN, fdHeatMax) : String.Format("%d/%d", fdHeatN, fdHeatMax)); }
+
+		bool fdWcHas; int fdWcN, fdWcMax; bool fdWcOver;
+		[fdWcHas, fdWcN, fdWcMax, fdWcOver] = wr_CompatFinalDoomer.WmChaingunOf(w);
+		if (fdWcHas) { labels.Push("SPEED"); values.Push(fdWcOver ? String.Format("%d/%d OVERLOAD", fdWcN, fdWcMax) : String.Format("%d/%d", fdWcN, fdWcMax)); }
+
+		bool fdWbHas; int fdWbTics;
+		[fdWbHas, fdWbTics] = wr_CompatFinalDoomer.WmBfgOf(w);
+		if (fdWbHas) { labels.Push("FIRING"); values.Push(String.Format("%ds", fdWbTics / 35 + 1)); }
+
+		bool fdWrHas; int fdWrN, fdWrMax;
+		[fdWrHas, fdWrN, fdWrMax] = wr_CompatFinalDoomer.WmRocketOf(w);
+		if (fdWrHas) { labels.Push("CHARGE"); values.Push(String.Format("%d/%d", fdWrN, fdWrMax)); }
 	}
 
 	// One resolved stat, both weapons, side by side.
