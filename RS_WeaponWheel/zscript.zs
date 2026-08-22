@@ -70,6 +70,17 @@
 // never touches the title row either.
 #include "wr_compat_finaldoomer.zs"
 
+// wr_compat_lithium.zs -- reading Lithium's seven characters and 48 weapons.
+// Real ZScript, so most of it is ordinary field reflection; armour needs a
+// two-level walk through that mod's IDOL container and status effects need a
+// ThinkerIterator. No rarity ladder, so no title row.
+//
+// It is also the only compat file here that CALLS another mod's ACS, behind
+// its own off-by-default switch and an exact-version gate -- see the fence
+// comment at the bottom of that file for why this one is allowed where
+// BorderDoom's equivalent is not.
+#include "wr_compat_lithium.zs"
+
 // wr_stats.zs -- the universal stat resolver. Asks one question per stat
 // (damage, rate of fire, accuracy, pellets, magazine) of ANY weapon from any
 // mod, and takes the best answer available: the mod's own field, the
@@ -1013,6 +1024,228 @@ class wr_Rig : EventHandler
 	// A SHORT SHEET IS THE HONEST ONE. Rows the engine cannot answer are not
 	// drawn as "--"; they are absent. Seven rows of dashes claims the data was
 	// expected and is missing, when the truth is the engine never had it.
+	// THE LITHIUM ROWS, split out of buildSheetRows for register budget --
+	// see the call site. Returns whether it claimed the sheet's single
+	// gauge, which the caller needs in order to leave the bar alone.
+	private bool lithiumRows(Weapon w)
+	{
+		// LITHIUM -- seven characters, 48 weapons, no rarity ladder. See
+		// wr_compat_lithium.zs. Everything here needs a CARRIED weapon:
+		// that mod deletes any weapon actor with no owner, so there is
+		// nothing on the floor to read.
+		bool liName; string liNameRow;
+		[liName, liNameRow] = wr_CompatLithium.NameOf(w);
+		if (liName)
+		{
+			bool liWho; int liPc; string liDis;
+			[liWho, liPc, liDis] = wr_CompatLithium.CharacterOf(w);
+			sheetRow(liWho && liDis.Length()
+			           ? String.Format("%s  --  %s", liNameRow, liDis)
+			           : liNameRow, SHEET_TEXT);
+		}
+
+		// Magazine, as ROUNDS LEFT. Lithium stores shots SPENT and counts
+		// up, so this is already inverted for us by the reader.
+		bool liMag; int liMagN, liMagMax;
+		[liMag, liMagN, liMagMax] = wr_CompatLithium.MagazineOf(w);
+		if (liMag)
+			sheetRow(String.Format("MAG %d/%d", liMagN, liMagMax),
+			         (liMagN == 0) ? color(COLOR_AMMO_DRY) : color(SHEET_TEXT));
+
+		bool liAmmo; string liAmmoWord; int liAmmoN, liAmmoMax;
+		[liAmmo, liAmmoWord, liAmmoN, liAmmoMax] = wr_CompatLithium.AmmoOf(w);
+		if (liAmmo)
+			sheetRow(String.Format("%s %d/%d", liAmmoWord, liAmmoN, liAmmoMax),
+			         (liAmmoN == 0) ? color(COLOR_AMMO_DRY) : color(SHEET_MEAS));
+
+		bool liAds; string liAdsWord;
+		[liAds, liAdsWord] = wr_CompatLithium.AdsOf(w);
+		if (liAds) sheetRow(liAdsWord, SHEET_MEAS);
+
+		// The one row here built for a WHEEL rather than a HUD: this ticks
+		// on a gun you are NOT holding, which is exactly what browsing the
+		// ring is for.
+		bool liAr; int liArSec;
+		[liAr, liArSec] = wr_CompatLithium.AutoReloadOf(w);
+		if (liAr) sheetRow(String.Format("RELOADING %ds", liArSec), SHEET_DIM);
+
+		bool liStat; string liStatRow;
+		[liStat, liStatRow] = wr_CompatLithium.StatusOf(w);
+		if (liStat) sheetRow(liStatRow, SHEET_HOT);
+
+		// Mana takes the gauge for the CyberMage. It can never contend with
+		// the other three claims on it -- a weapon belongs to one mod, and
+		// within Lithium only a CyberMage has mana at all.
+		bool liMana; int liManaN, liManaMax;
+		[liMana, liManaN, liManaMax] = wr_CompatLithium.ManaOf(w);
+		bool liTookBar = false;
+		if (liMana && liManaMax > 0 && (liManaN > 0 || wr_CompatLithium.IsManaBattery(w)))
+		{
+			color mc = (liManaN >= liManaMax) ? color(SHEET_HOT)
+			         : (liManaN * 4 < liManaMax) ? color(COLOR_AMMO_DRY) : color(SHEET_MEAS);
+			sheetRow(String.Format("MANA %d/%d", liManaN, liManaMax), mc);
+			setSheetBar(liManaN * 100 / liManaMax, mc, true);
+			liTookBar = true;
+		}
+
+		// Cercle is the one spell with a genuine binary ready-state: it
+		// fires only at exactly full mana and then spends all of it.
+		bool liCer, liCerReady;
+		[liCer, liCerReady] = wr_CompatLithium.CercleOf(w);
+		if (liCer)
+			sheetRow(liCerReady ? "READY" : "NEEDS FULL MANA",
+			         liCerReady ? color(SHEET_HOT) : color(SHEET_LOCK));
+
+		bool liCost, liCostReload; int liCostN;
+		[liCost, liCostN, liCostReload] = wr_CompatLithium.SpellCostOf(w);
+		if (liCost && liCostN > 0)
+			sheetRow(String.Format("COST %d%s", liCostN, liCostReload ? " / RELOAD" : ""), SHEET_DIM);
+		else if (liCost)
+			sheetRow("COST FREE", SHEET_DIM);
+
+		if (wr_CompatLithium.IsManaBattery(w))
+			sheetRow("BATTERY  +4 MANA / 0.2s", SHEET_DIM);
+
+		bool liHeat, liHeatLock; int liHeatN, liHeatMax;
+		[liHeat, liHeatN, liHeatMax, liHeatLock] = wr_CompatLithium.SmgHeatOf(w);
+		if (liHeat && (liHeatN > 0 || liHeatLock))
+		{
+			color hc = liHeatLock ? color(COLOR_AMMO_DRY)
+			         : (liHeatN * 2 >= liHeatMax) ? color(SHEET_HOT) : color(SHEET_MEAS);
+			sheetRow(String.Format("HEAT %d/%d%s", liHeatN, liHeatMax,
+			         liHeatLock ? "  LOCKED" : ""), hc);
+			if (!liTookBar) { setSheetBar(liHeatN * 100 / liHeatMax, hc, true); liTookBar = true; }
+		}
+
+		// SPREAD, not accuracy -- this is a multiplier where LOWER IS
+		// BETTER, so it never goes near the universal accuracy resolver.
+		bool liSpr; double liSprN, liSprWorst;
+		[liSpr, liSprN, liSprWorst] = wr_CompatLithium.SmgSpreadOf(w);
+		if (liSpr && liSprN > 0.1)
+			sheetRow(String.Format("SPREAD %.2fx", liSprN),
+			         (liSprN >= 0.6) ? color(COLOR_AMMO_DRY) : color(SHEET_MEAS));
+
+		bool liIon, liIonVent; double liIonC;
+		[liIon, liIonC, liIonVent] = wr_CompatLithium.IonChargeOf(w);
+		if (liIon)
+			sheetRow(String.Format("CHARGE %.2f  %d DMG%s", liIonC, int(liIonC * 300.0),
+			         liIonVent ? "  WILL VENT" : ""),
+			         liIonVent ? color(COLOR_AMMO_DRY) : color(SHEET_HOT));
+
+		bool liSpin; double liSpinU; int liSpinRate;
+		[liSpin, liSpinU, liSpinRate] = wr_CompatLithium.WindUpOf(w);
+		if (liSpin)
+			sheetRow(String.Format("SPIN %d%%  %d TIC/SHOT", int(liSpinU * 100.0), liSpinRate), SHEET_HOT);
+
+		bool liKh, liKhOn;
+		[liKh, liKhOn] = wr_CompatLithium.KhandaOf(w);
+		if (liKh && liKhOn) sheetRow("SKILL POWER  50x DAMAGE", SHEET_HOT);
+
+		// The Kampilan's stacks. Excluded from the magazine row on purpose:
+		// same field, opposite polarity -- here higher is BETTER.
+		bool liCmb; int liCmbN, liCmbMax, liCmbCd;
+		[liCmb, liCmbN, liCmbMax, liCmbCd] = wr_CompatLithium.ComboOf(w);
+		if (liCmb && liCmbN > 0)
+			sheetRow(String.Format("COMBO %d/%d  +%d%% DMG", liCmbN, liCmbMax, liCmbN * 10), SHEET_HOT);
+
+		bool liRems; int liRemsN, liRemsMax;
+		[liRems, liRemsN, liRemsMax] = wr_CompatLithium.RemsOf(w);
+		if (liRems)
+			sheetRow(String.Format("VENTING %d/%d", liRemsN, liRemsMax), SHEET_LOCK);
+
+		// "LAST CHARGE" rather than a live meter, because the field is not
+		// cleared after firing and a live label would be a lie.
+		bool liShr; int liShrN, liShrPellets;
+		[liShr, liShrN, liShrPellets] = wr_CompatLithium.ShrapnelOf(w);
+		if (liShr)
+			sheetRow(String.Format("LAST CHARGE %d  %d PELLETS", liShrN, liShrPellets), SHEET_DIM);
+
+		bool liFall; int liFallNow, liFallBase;
+		[liFall, liFallNow, liFallBase] = wr_CompatLithium.FalloffOf(w);
+		if (liFall && liFallNow < liFallBase)
+			sheetRow(String.Format("DAMAGE %d  (BASE %d)", liFallNow, liFallBase),
+			         (liFallNow * 2 < liFallBase) ? color(COLOR_AMMO_DRY) : color(SHEET_MEAS));
+
+		bool liFist; int liFistN;
+		[liFist, liFistN] = wr_CompatLithium.ChargeFistOf(w);
+		if (liFist) sheetRow(String.Format("CHARGE %d", liFistN), SHEET_HOT);
+
+		bool liRa; string liRaRow;
+		[liRa, liRaRow] = wr_CompatLithium.ReactiveArmorOf(w);
+		if (liRa) sheetRow("REACTIVE " .. liRaRow, SHEET_MEAS);
+
+		bool liGren; int liGrenN; string liGrenMode;
+		[liGren, liGrenN, liGrenMode] = wr_CompatLithium.GrenadeOf(w);
+		if (liGren) sheetRow(String.Format("LOADED %d/8  %s", liGrenN, liGrenMode), SHEET_TEXT);
+
+		bool liTube, liTubeReady;
+		[liTube, liTubeReady] = wr_CompatLithium.GrenadeTubeOf(w);
+		if (liTube)
+			sheetRow(liTubeReady ? "GRENADE READY" : "GRENADE SPENT",
+			         liTubeReady ? color(SHEET_HOT) : color(SHEET_LOCK));
+
+		bool liMs; int liMsN, liMsMax;
+		[liMs, liMsN, liMsMax] = wr_CompatLithium.MissileSpinOf(w);
+		if (liMs) sheetRow(String.Format("SPIN %d/%d", liMsN, liMsMax), SHEET_MEAS);
+
+		// 0 MEANS READY here -- this counter runs the other way from every
+		// other one on the card.
+		bool liDodge; int liDodgeN, liDodgeMax;
+		[liDodge, liDodgeN, liDodgeMax] = wr_CompatLithium.DodgeOf(w);
+		if (liDodge)
+			sheetRow(liDodgeN <= 0 ? "DODGE READY"
+			                       : String.Format("DODGE %.1fs", liDodgeN / 35.0),
+			         liDodgeN <= 0 ? color(SHEET_HOT) : color(SHEET_LOCK));
+
+		bool liIf; int liIfN;
+		[liIf, liIfN] = wr_CompatLithium.IFramesOf(w);
+		if (liIf) sheetRow(String.Format("INVULN %.1fs", liIfN / 35.0), SHEET_HOT);
+
+		bool liSpt, liSptOn;
+		[liSpt, liSptOn] = wr_CompatLithium.SprintOf(w);
+		if (liSpt && liSptOn) sheetRow("SPRINTING", SHEET_DIM);
+
+		bool liArm; string liArmName; int liArmSave;
+		[liArm, liArmName, liArmSave] = wr_CompatLithium.ArmorOf(w);
+		if (liArm) sheetRow(String.Format("%s  SAVE %d", liArmName, liArmSave), SHEET_MEAS);
+
+		bool liDf; int liDfPct;
+		[liDf, liDfPct] = wr_CompatLithium.DamageFacOf(w);
+		if (liDf) sheetRow(String.Format("DAMAGE TAKEN -%d%%", liDfPct), SHEET_MEAS);
+
+		bool liShd; int liShdN;
+		[liShd, liShdN] = wr_CompatLithium.ShieldOf(w);
+		if (liShd) sheetRow(String.Format("SHIELD %d", liShdN), SHEET_MEAS);
+
+		// Speed is a raw percent whose BASELINE DIFFERS PER CHARACTER (the
+		// Dark Lord's is 45), so it is never coloured as a debuff for being
+		// under 100 and never compared across characters.
+		bool liSpd; int liSpdPct;
+		[liSpd, liSpdPct] = wr_CompatLithium.SpeedOf(w);
+		if (liSpd) sheetRow(String.Format("SPEED %d%%", liSpdPct), SHEET_DIM);
+
+		// The ACS-sourced rows. Off by default, exact-version gated, and
+		// self-latching on a canary failure -- see the fence comment in
+		// wr_compat_lithium.zs.
+		bool liAttr; string liAttrRow;
+		[liAttr, liAttrRow] = wr_CompatLithium.AttributesOf(w);
+		if (liAttr) sheetRow(liAttrRow, SHEET_TEXT);
+
+		bool liUpg; int liUpgN, liUpgMax;
+		[liUpg, liUpgN, liUpgMax] = wr_CompatLithium.UpgradesOf(w);
+		if (liUpg) sheetRow(String.Format("UPGRADES %d/%d", liUpgN, liUpgMax), SHEET_TEXT);
+
+		bool liRm; string liRmWord;
+		[liRm, liRmWord] = wr_CompatLithium.RifleModeOf(w);
+		if (liRm) sheetRow("FIRE MODE " .. liRmWord, SHEET_TEXT);
+
+		bool liSig, liSigHas;
+		[liSig, liSigHas] = wr_CompatLithium.SigilOf(w);
+		if (liSig && liSigHas) sheetRow("SIGIL", SHEET_HOT);
+
+		return liTookBar;
+	}
+
 	private void buildSheetRows(Weapon w)
 	{
 		// RESTRUNG, NOT REBUILT. SetBillboardText retexts a live BB_TEXT and
@@ -1645,6 +1878,12 @@ class wr_Rig : EventHandler
 		[fdWr, fdWrN, fdWrMax] = wr_CompatFinalDoomer.WmRocketOf(w);
 		if (fdWr) sheetRow(String.Format("CHARGE %d/%d", fdWrN, fdWrMax), SHEET_HOT);
 
+		// LITHIUM. Extracted into its own method rather than inlined here:
+		// buildSheetRows was already at 229 of 200 registers before Lithium
+		// added another forty locals, and ZScript's register budget is per
+		// FUNCTION, so the fix is a smaller function rather than fewer rows.
+		bool liTookBar = lithiumRows(w);
+
 		// This wheel's own kill/shot/accuracy/headshot tracker -- see
 		// wr_stattracker.zs. Everything above this point is a READ of data
 		// some other mod already computed; nothing anywhere computes THIS,
@@ -1702,7 +1941,7 @@ class wr_Rig : EventHandler
 		// guard, and statRows only ever claims it for a weapon that actually
 		// has a Condition.
 		bool wantStats = cv("wr_sheet_stats", 1.0) > 0.0;
-		if (!caHeat && !diHeat && !fdHeat) setSheetBar(0, SHEET_MEAS, false);
+		if (!caHeat && !diHeat && !fdHeat && !liTookBar) setSheetBar(0, SHEET_MEAS, false);
 		if (wantStats) statRows(w);
 
 		blankRestOfSheet();

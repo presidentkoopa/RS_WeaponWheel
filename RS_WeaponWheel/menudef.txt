@@ -361,6 +361,14 @@ OptionMenu wr_Compat
 	// counters worth a row; Doom II and Aliens TC are fixed math with
 	// nothing to read past which set is active.
 	Option "Final Doomer set mechanics", "wr_fd_compat",   "OnOff"
+	// Seven characters, 48 weapons. Magazines, mana, heat, charge, spin-up
+	// and status effects. Nothing reads off a Lithium weapon on the floor --
+	// that mod deletes unowned weapon actors.
+	Option "Lithium weapons",           "wr_lith_compat", "OnOff"
+	// Separate switch, off by default: this is the only setting in the whole
+	// mod that calls another mod's own scripts rather than reading its data.
+	// Turn it off if a Lithium update lands before an update to this.
+	Option "  Lithium RPG stats (ACS)", "wr_lith_acs",    "OnOff"
 
 	StaticText ""
 }

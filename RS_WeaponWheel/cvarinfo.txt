@@ -619,6 +619,35 @@ user bool  wr_ca_compat = true;
 // which set is active.
 user bool  wr_fd_compat = true;
 
+// Lithium's seven characters and their weapons -- see wr_compat_lithium.zs.
+// Real ZScript, so magazines/mana/heat/charge/spin-up/status effects are all
+// read by ordinary field reflection. No rarity ladder anywhere in the mod, so
+// no title row and no wr_tier_color.
+//
+// NOTE that Lithium destroys any weapon actor with no owner, so unlike DOOM
+// Infinite there is nothing to read off a Lithium weapon lying on the floor --
+// every row here needs the gun to be carried.
+user bool  wr_lith_compat = true;
+
+// Lithium's RPG layer -- the seven attributes, the 76-entry upgrade tree, the
+// rifle's fire mode. OFF BY DEFAULT, and that is deliberate.
+//
+// Everything else this wheel reads is a field or an inventory count. THIS one
+// switch calls into another mod's own ACS (its script 17002), which is the
+// thing wr_compat_borderdoom.zs refuses to do. It is allowed here because that
+// script was disassembled out of Lithium's shipped bytecode and contains no
+// line-special opcode at all, so BorderDoom's failure -- a "getter" that
+// mutated ammo capacity -- is structurally impossible rather than merely
+// unobserved.
+//
+// What is still risky is the BINDING: the script number and its argument
+// indices are positional and undocumented, so a Lithium update can silently
+// change what comes back. The reader only trusts an EXACT version match
+// (1.7.0, the only build audited) and shuts itself off for the session if its
+// startup canary disagrees -- but this switch is the manual kill for the case
+// where an update lands before a patch does.
+user bool  wr_lith_acs = false;
+
 // INSPECT MODE -- the data card without the wheel.
 //
 // Point at a weapon lying in the world and, after a moment's rest, the same
